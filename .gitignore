@@ -4,6 +4,7 @@ src-tauri/target/
 src-tauri/gen/
 .filebridge-lan-data/
 .filebridge-data/
+.filebridge-bridge/
 release/
 *.log
 .DS_Store

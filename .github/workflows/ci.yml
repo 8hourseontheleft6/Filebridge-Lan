@@ -31,5 +31,8 @@ jobs:
       - name: Hub smoke tests
         run: npm run test:hub
 
+      - name: Bridge smoke tests
+        run: npm run test:bridge
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml

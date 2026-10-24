@@ -5,6 +5,8 @@ import { useHubInfo } from './http/useHubInfo';
 import { CopyButton } from './components/CopyButton';
 import { JoinQr } from './components/JoinQr';
 import { SettingsPanel } from './components/SettingsPanel';
+import { RelayTransfer } from './relay/RelayTransfer';
+import { isRelayHosted, parseRelayHash } from './relay/api';
 import { formatBytes } from './lib/format';
 import { resolvePhoneBase, SIGNAL_URL } from './lib/hub';
 
@@ -668,17 +670,41 @@ function App() {
 
   // ---- UI ----
 
+  const relayLink = parseRelayHash();
+  const relayOnly = isRelayHosted();
+
+  if (relayLink) {
+    return (
+      <div className="app relay-receive-app">
+        <header className="header home-header">
+          <div className="home-title">
+            <h1>📥 Filebridge-Lan</h1>
+            <p className="status">跨网络加密接收</p>
+          </div>
+        </header>
+        <main className="main relay-main">
+          <RelayTransfer initialLink={relayLink} standalone />
+        </main>
+        <footer className="app-footer">Filebridge-Lan v1.3.0 · 端到端加密中继</footer>
+      </div>
+    );
+  }
+
   if (view === 'home') {
     return (
       <div className="app">
         <header className="header home-header">
           <div className="home-title">
             <h1>📁 Filebridge-Lan</h1>
-            <p className="status">同一 WiFi · 免安装 · 大文件直传</p>
+            <p className="status">
+              {relayOnly ? '跨网络加密传输' : '同一 WiFi · 免安装 · 大文件直传'}
+            </p>
           </div>
-          <button type="button" className="btn btn-small settings-button" onClick={() => setShowSettings(true)}>
-            ⚙ 设置
-          </button>
+          {!relayOnly && (
+            <button type="button" className="btn btn-small settings-button" onClick={() => setShowSettings(true)}>
+              ⚙ 设置
+            </button>
+          )}
         </header>
         {homeError && (
           <div className="notice notice-bad home-error">
@@ -699,46 +725,49 @@ function App() {
           className="main home-main"
           style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', maxWidth: 980, margin: '0 auto' }}
         >
-          <HttpTransfer />
-          <section className="panel">
-            <div className="panel-head">
-              <h2>🔗 WebRTC 房间（可选）</h2>
-              <span className="chip">小文件</span>
-            </div>
-            <p className="hint" style={{ marginBottom: 14 }}>
-              适合 ≤64KB 的小文件；创建房间后会出现手机扫码入口。
-            </p>
-            <div className="connect-form">
-              <button type="button" className="btn btn-primary" onClick={handleCreateRoom}>
-                🏠 创建房间
-              </button>
-              <div className="divider" />
-              <input
-                className="input"
-                placeholder="输入房间码"
-                value={inputCode}
-                onChange={e => setInputCode(e.target.value.toUpperCase())}
-                maxLength={6}
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="房间码"
-                style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: 4 }}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleJoinRoom}
-                disabled={!inputCode.trim()}
-              >
-                🔗 加入房间
-              </button>
-            </div>
-            <p className="hint" style={{ marginTop: 12 }}>
-              手机也可以直接扫码加入；没有摄像头时手动输入房间码。
-            </p>
-          </section>
+          {!relayOnly && <HttpTransfer />}
+          {!relayOnly && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>🔗 WebRTC 房间（可选）</h2>
+                <span className="chip">小文件</span>
+              </div>
+              <p className="hint" style={{ marginBottom: 14 }}>
+                适合 ≤64KB 的小文件；创建房间后会出现手机扫码入口。
+              </p>
+              <div className="connect-form">
+                <button type="button" className="btn btn-primary" onClick={handleCreateRoom}>
+                  🏠 创建房间
+                </button>
+                <div className="divider" />
+                <input
+                  className="input"
+                  placeholder="输入房间码"
+                  value={inputCode}
+                  onChange={e => setInputCode(e.target.value.toUpperCase())}
+                  maxLength={6}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="房间码"
+                  style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: 4 }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleJoinRoom}
+                  disabled={!inputCode.trim()}
+                >
+                  🔗 加入房间
+                </button>
+              </div>
+              <p className="hint" style={{ marginTop: 12 }}>
+                手机也可以直接扫码加入；没有摄像头时手动输入房间码。
+              </p>
+            </section>
+          )}
+          <RelayTransfer />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.2.1 · 文件只在局域网内传输</footer>
+        <footer className="app-footer">Filebridge-Lan v1.3.0 · 局域网直传 / 跨网络中继</footer>
         {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       </div>
     );
@@ -911,7 +940,7 @@ function App() {
           ))}
         </div>
       </section>
-      <footer className="app-footer">Filebridge-Lan v1.2.1 · 仅局域网内传输</footer>
+      <footer className="app-footer">Filebridge-Lan v1.3.0 · 仅局域网内传输</footer>
     </div>
   );
 }

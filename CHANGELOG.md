@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0 - 2026-10-24
+
+新增跨网络加密中继（实验性）。
+
+### 新增
+
+- `server/bridge.mjs`：独立 Relay（:43000），传输码、上传令牌、TTL、配额、限流
+- AES-256-GCM 4MB 分片加密；key 放在 URL fragment，中继只保存密文
+- 跨网络发送/接收面板、二维码、进度、取消
+- Relay 同时托管 `dist/`，手机打开公网链接即可接收
+- `docs/CROSS-NETWORK.md`：API、部署、安全模型
+
+### 验证
+
+- 1MB 文件浏览器 E2E 收发，下载 SHA-256 与源文件一致
+- 中继磁盘分片为密文（明文 + 28 字节）
+- `npm run test:bridge` 9 项通过
+- CI 增加 Bridge smoke test
+
 ## 1.2.1 - 2026-10-24
 
 修复安装版下手机无法访问 Rust Hub 的防火墙问题。
