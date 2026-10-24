@@ -48,6 +48,13 @@ jobs:
             "Filebridge-Lan $tag" | Set-Content release-notes.md
           }
 
+      - name: Record installer SHA-256
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+          Add-Content -Path release-notes.md -Value "`n## Installer SHA-256`n`n``$hash``" -Encoding utf8
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

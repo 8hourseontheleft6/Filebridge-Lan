@@ -738,7 +738,7 @@ function App() {
             </p>
           </section>
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.2.0 · 文件只在局域网内传输</footer>
+        <footer className="app-footer">Filebridge-Lan v1.2.1 · 文件只在局域网内传输</footer>
         {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       </div>
     );
@@ -911,7 +911,7 @@ function App() {
           ))}
         </div>
       </section>
-      <footer className="app-footer">Filebridge-Lan v1.2.0 · 仅局域网内传输</footer>
+      <footer className="app-footer">Filebridge-Lan v1.2.1 · 仅局域网内传输</footer>
     </div>
   );
 }

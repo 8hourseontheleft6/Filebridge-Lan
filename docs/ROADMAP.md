@@ -17,6 +17,7 @@
 - ✅ **1.1.2 下载体验**：桌面端下载改走 Rust 保存，成功/失败 Toast + 打开文件夹；首页设置可自定义下载目录并持久化；同名同大小文件不重复保存；覆盖安装验证通过。
 - ✅ **1.1.3 可靠性与可见性**：下载 `.part` + 原子重命名、进度/取消；Hub SSE `/api/events` 推送手机上传进度；修复 stdout 不可用时上传日志 panic 导致响应丢失。
 - ✅ **1.2.0 开源发布**：更名 Filebridge-Lan；MIT License、SECURITY/CONTRIBUTING/第三方声明、Windows CI；新应用标识/二进制/数据目录与旧数据迁移；`npm audit` 0 漏洞。
+- ✅ **1.2.1 防火墙修复**：定位 `filebridge-lan.exe` Block/Private 规则导致手机无法访问；安装器 UAC hook + 手动修复脚本 + README 排障；Release workflow 自动附 SHA-256。
 - ⏳ **未完成**：上传断点续传、token/鉴权、正式浏览器 E2E；代码签名/MSI 待按需补充。
 - 性能测试必须用 `--release`：debug 构建的 SHA-256 未优化，1 GB 上传约 38 s（曾误判为 Hub 吞吐问题）。
 - 详细 API 与限制见 [HTTP-HUB.md](./HTTP-HUB.md)。

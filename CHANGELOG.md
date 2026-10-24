@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.1 - 2026-10-24
+
+修复安装版下手机无法访问 Rust Hub 的防火墙问题。
+
+### 修复
+
+- 根因：Windows 防火墙存在 `filebridge-lan.exe` 的 Block/Private 入站规则；Node Hub（`node.exe`）有 Allow 规则，所以 `npm run hub` 能访问
+- NSIS 安装器新增防火墙 hook：安装结束时请求一次 UAC，移除 Block 规则并添加 Private/Domain TCP Allow
+- 新增 `scripts/fix-firewall.ps1` 供已安装 1.2.0 的用户手动修复
+- 设置面板与 README 增加“手机打不开”排障说明
+- Release workflow 自动把安装包 SHA-256 写入发布正文
+
+### 验证
+
+- App 单独启动时 Hub 监听 `0.0.0.0:42080`，本机 `/` 返回 200
+- 防火墙修复后不再有 `filebridge-lan.exe` Block 规则
+- 手机与电脑在同一专用网络时可访问 `http://<电脑IP>:42080/`
+
 ## 1.2.0 - 2026-10-24
 
 首个以 Filebridge-Lan 名称发布的开源版本（MIT）。

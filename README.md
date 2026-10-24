@@ -22,22 +22,24 @@
 
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.2.0_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.2.1_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.2.0_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.2.1_x64-setup.exe`
 
-- 大小 5.0 MB
-- SHA-256 `206fd21b312f4e9fc022ecfef2d0b759296f7a6ca1e8dbb3d3c2f6957e6fd572`
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
+- 安装结束时如出现 **UAC** 提示，请允许一次：用于移除防火墙 Block 规则并放行专用网络
 - 安装包未签名，Windows SmartScreen 可能提示“未知发布者”
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42070 / 42080）
+- SHA-256 见 GitHub Release 的资产 digest
 
-> 从旧 FileBridge 升级：1.2.0 使用新的应用标识，旧版本会保留；首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
+版本说明：[docs/RELEASE-1.2.1.md](docs/RELEASE-1.2.1.md)
+
+> 从旧 FileBridge 升级：1.2.x 使用新的应用标识，旧版本会保留；首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
 ## 从源码开发
 
@@ -64,6 +66,32 @@ npm run tauri dev    # 启动 Tauri，同时拉起 Rust Hub/信令
 - 首页选择文件上传；电脑端文件列表点“保存”下载
 - 右上角 **⚙ 设置** 可修改电脑端下载目录
 - 创建 WebRTC 房间后，手机扫描房间二维码自动加入
+
+### 手机打不开，但电脑端正常？
+
+通常是 Windows 防火墙阻止了 `filebridge-lan.exe`。`npm run hub` 用的是 `node.exe`，已有 Allow 规则，所以能访问。
+
+1.2.1 安装器会请求一次 UAC 并自动修复。已经安装 1.2.0 的，以管理员身份运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\fix-firewall.ps1
+```
+
+也可以手动执行：
+
+```powershell
+Get-NetFirewallRule -DisplayName 'filebridge-lan.exe' | Remove-NetFirewallRule
+New-NetFirewallRule -DisplayName 'Filebridge-Lan' -Direction Inbound `
+  -Program "$env:LOCALAPPDATA\Filebridge-Lan\filebridge-lan.exe" `
+  -Action Allow -Protocol TCP -Profile Private,Domain
+```
+
+其他检查：
+
+- 电脑与手机在同一 WiFi，路由器未开启 AP 隔离
+- Windows 网络配置为“专用”而不是“公用”
+- 手机打开 `http://<电脑IP>:42080/api/info`，能返回 JSON 说明端口已通
+- 确认 42080/42070 没有被旧进程/Node Hub 占用；`npm run hub` 与 App 不要同时跑
 
 ## 架构
 

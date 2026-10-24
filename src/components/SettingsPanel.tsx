@@ -132,6 +132,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </button>
             </div>
             <p className="hint">下载文件会复制到这里；同名且大小相同的文件不会重复下载。</p>
+            <p className="hint">
+              手机打不开？请确认 Windows 防火墙允许 Filebridge-Lan 访问“专用网络”；详见项目 README 的“手机打不开”一节。
+            </p>
             <div className="modal-actions">
               <button type="button" className="btn btn-small" onClick={() => void openFolder()} disabled={busy}>
                 打开文件夹
