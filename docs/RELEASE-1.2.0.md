@@ -21,7 +21,7 @@
 - 新增 `SECURITY.md`、`CONTRIBUTING.md`、`THIRD_PARTY_NOTICES.md`
 - 新增 Windows GitHub Actions CI
 - 移除未使用的 `react-router-dom`，`npm audit` 0 漏洞
-- 当前公开历史使用干净的单提交；旧开发历史已打包为本地归档 bundle，不随仓库发布
+- 当前公开历史保持精简；旧开发历史已打包为本地归档 bundle，不随仓库发布
 
 ## 功能（延续 1.1.3）
 
