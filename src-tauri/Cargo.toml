@@ -1,0 +1,33 @@
+[package]
+name = "filebridge-lan"
+version = "1.2.0"
+description = "Filebridge-Lan：局域网文件传输（Tauri 桌面端）"
+authors = ["Filebridge-Lan contributors"]
+license = "MIT"
+edition = "2021"
+default-run = "filebridge-lan"
+
+[lib]
+name = "filebridge_lan_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "fs", "io-util", "sync", "time"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+local-ip-address = "0.6"
+percent-encoding = "2"
+anyhow = "1"
+rfd = "0.15"

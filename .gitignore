@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.filebridge-lan-data/
+.filebridge-data/
+release/
+*.log
+.DS_Store
+Thumbs.db
+.git_disabled/

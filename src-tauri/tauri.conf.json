@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "Filebridge-Lan",
+  "version": "1.2.0",
+  "identifier": "com.filebridgelan.desktop",
+  "mainBinaryName": "filebridge-lan",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Filebridge-Lan",
+        "width": 900,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Filebridge-Lan contributors",
+    "copyright": "Copyright © 2026 Filebridge-Lan contributors",
+    "shortDescription": "局域网文件传输：手机浏览器 ↔ 电脑",
+    "longDescription": "Filebridge-Lan 是局域网文件传输工具：手机浏览器扫码即可打开，大文件走 HTTP 直传并由电脑流式写盘；支持 WebRTC 房间扫码加入。",
+    "resources": ["../dist/**/*"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "installMode": "currentUser"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

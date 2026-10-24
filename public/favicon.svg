@@ -1,0 +1,5 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Filebridge-Lan">
+  <rect width="64" height="64" rx="14" fill="#1a1a2e"/>
+  <path d="M12 20a4 4 0 0 1 4-4h10l4 5h16a4 4 0 0 1 4 4v23a4 4 0 0 1-4 4H16a4 4 0 0 1-4-4V20z" fill="#e94560"/>
+  <path d="M20 32h24M20 40h16" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+</svg>

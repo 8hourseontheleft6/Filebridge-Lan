@@ -1,0 +1,37 @@
+{
+  "name": "filebridge-lan",
+  "version": "1.2.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Filebridge-Lan contributors",
+  "description": "Filebridge-Lan：局域网文件传输。手机浏览器扫码直传大文件，Tauri 桌面端内嵌 Hub 与 WebRTC 信令。",
+  "scripts": {
+    "dev": "vite",
+    "dev:all": "node server/start.js",
+    "hub": "node server/hub.mjs",
+    "test:hub": "node scripts/hub-smoke.mjs",
+    "bench:upload": "node scripts/bench-upload.mjs",
+    "check": "tsc --noEmit",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.5.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.4.1",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

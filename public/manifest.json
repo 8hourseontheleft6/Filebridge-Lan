@@ -1,0 +1,17 @@
+{
+  "name": "Filebridge-Lan",
+  "short_name": "Filebridge-Lan",
+  "description": "局域网文件传输：手机浏览器与电脑之间直传大文件",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
