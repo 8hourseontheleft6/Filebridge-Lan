@@ -10,3 +10,5 @@ release/
 .DS_Store
 Thumbs.db
 .git_disabled/
+
+screenshots/

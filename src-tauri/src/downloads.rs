@@ -263,17 +263,28 @@ pub fn open_download_dir(state: State<'_, DownloadState>) -> Result<(), String> 
     open_dir(Path::new(&dir))
 }
 
+#[cfg(target_os = "windows")]
+fn explorer_select_arg(path: &Path) -> String {
+    format!("/select,\"{}\"", path.display())
+}
+
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Err("只能打开绝对路径".to_string());
+    }
     if !path.exists() {
         return Err("文件不存在".to_string());
     }
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
+        use std::os::windows::process::CommandExt;
+        Command::new("explorer.exe")
+            // Explorer 的 /select, 后必须跟带引号的完整路径；拆成普通 arg
+            // 或漏掉引号时，Explorer 可能退回到“文档”默认目录。
+            .raw_arg(explorer_select_arg(&path))
             .spawn()
             .map(|_| ())
             .map_err(|error| format!("打开文件夹失败: {error}"))
@@ -405,4 +416,19 @@ async fn run_save_download(
         path: target.to_string_lossy().to_string(),
         existed: false,
     })
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn explorer_select_arg_keeps_quoted_absolute_path() {
+        let path = Path::new(r"C:\Users\demo\Downloads\a b\测试 文件.txt");
+        let arg = explorer_select_arg(path);
+        assert!(arg.starts_with("/select,\""));
+        assert!(arg.ends_with('"'));
+        assert!(arg.contains("a b\\测试 文件.txt"));
+    }
 }

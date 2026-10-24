@@ -23,6 +23,7 @@ MPL-2.0 is file-level copyleft. These crates are used unmodified; their source i
 - Apache-2.0 / Apache-2.0 OR MIT
 - BSD-3-Clause
 - CC-BY-4.0: `caniuse-lite` browser compatibility data, © caniuse.com contributors, <https://caniuse.com/>
+- MIT: `@noble/hashes` (incremental SHA-256 for relay integrity)
 
 ## Runtime
 

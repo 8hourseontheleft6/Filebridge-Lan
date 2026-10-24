@@ -1,160 +1,76 @@
-# Filebridge-Lan 架构文档
+# Filebridge-Lan 架构
 
-> ⚠️ 本文是早期目标架构，不是 2026-10-23 的实际实现。现状见 [AUDIT.md](./AUDIT.md)，HTTP Hub API 见 [HTTP-HUB.md](./HTTP-HUB.md)。
+> 1.4.0 现状：局域网 HTTP Hub + 配对码/bearer token；跨网络加密中继。WebRTC 房间已移除。
 
-## 概述
+## 局域网
 
-跨平台文件传输工具。桌面端（Tauri）+ 移动端（PWA）。局域网优先，WebRTC P2P。
-
-## 技术栈
-
-```
-层            | 技术
----------------|--------------------------
-桌面壳         | Tauri（Rust）
-移动端         | PWA（Service Worker）
-前端           | React + Vite + TypeScript
-P2P传输        | WebRTC DataChannel
-信令           | WebSocket（本地服务器）
-发现           | mDNS + UDP广播 + WS中继
-加密           | Web Crypto API（ECDH + AES-256-GCM）
-```
-
-## 项目结构
-
-```
-Filebridge-Lan/
-├── src/
-│   ├── network/       # 设备发现
-│   │   └── discovery.ts
-│   ├── transfer/      # 文件传输协议
-│   │   └── protocol.ts
-│   ├── crypto/        # 安全与认证
-│   │   └── auth.ts
-│   └── ui/            # React组件（待开发）
-├── core/              # Rust后端（Tauri）
-│   └── lib.rs
-├── docs/
-│   └── ARCHITECTURE.md
-└── package.json
+```text
+手机浏览器
+   │ HTTP（明文，局域网）
+   ▼
+Rust axum Hub (:42080)
+   ├─ /api/session        loopback + 本机 Origin，桌面读取配对码
+   ├─ /api/pair           配对码 → 256-bit token（12h）
+   ├─ /api/info           公开：版本/端口/IP/文件数
+   ├─ /api/files          token 校验 → 文件元数据
+   ├─ /api/upload         token 校验 → 流式写盘 + SHA-256
+   ├─ /api/events         token 校验 → SSE 上传进度
+   ├─ /api/files/:id      token 校验 → 下载/Range/删除
+   └─ dist/              静态页面（SPA）
+   │
+   ▼
+Downloads/Filebridge-Lan（或用户选择的下载目录）
 ```
 
-## 模块架构
+- **没有 WebRTC、没有 42070 信令、没有房间**
+- 手机扫码链接带 `#code=...`；fragment 不发送到服务器
+- 桌面端通过 loopback + 本机 Origin 获取配对码；手机没有这个权限
+- 文件 API 使用 `Authorization: Bearer`；SSE/下载使用 `token` 查询参数
+- Host/Origin 白名单拒绝 DNS rebinding、null Origin 和任意域名
+- CORS 不再使用 `*`
 
-```
-┌─────────────────────────────────────────┐
-│                UI层                       │
-│  React组件 + 传输进度显示                 │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│           传输管理器                      │
-│  队列管理 + 分块 + 断点续传              │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────┐ ┌─────────────▼──────┐
-│   网络发现模块           │ │   安全认证模块      │
-│   mDNS + UDP + WS       │ │   PIN + ECDH + AES  │
-│   对等设备列表管理       │ │   信任存储          │
-└──────────────┬──────────┘ └─────────────┬──────┘
-               │                          │
-┌──────────────▼──────────────────────────▼──────┐
-│           传输层                                 │
-│  WebRTC DataChannel + WebSocket + HTTP回退      │
-└─────────────────────────────────────────────────┘
+## 跨网络
+
+```text
+发送方（Tauri/网页）
+   │ AES-256-GCM 分片加密
+   ▼
+Bridge Relay（:43000，HTTPS 反向代理）
+   ├─ 传输码/TTL/配额
+   └─ 密文分片
+   ▲
+   │ 接收方打开 https://relay/#receive=CODE&key=...&token=...
+接收方（手机浏览器）
 ```
 
-## 数据流
+- 中继只保存密文；key 和 downloadToken 在 URL fragment
+- 非 loopback 直连 HTTP 被拒绝；必须 HTTPS
+- 中继仍是实验性，未完成真实 WAN 验证；详见 `CROSS-NETWORK.md`
 
-### 配对流程
-```
-桌面端                     移动端
-   │                         │
-   ├─ 生成PIN ───────────────┤
-   │  显示二维码              │
-   │                         ├─ 扫描/输入PIN
-   │                         ├─ 生成ECDH密钥对
-   ├─ 验证PIN ───────────────┤
-   │  生成ECDH密钥对          │
-   ├─ 交换公钥 ──────────────┤
-   │                         │
-   ├─ 派生共享密钥 ──────────┤
-   │  (ECDH)                 │
-   ├─ 派生AES密钥 ──────────┤
-   │                         │
-   └─ 存储信任 ──────────────┘
-```
+## 组件
 
-### 文件传输流程
-```
-发送方                     接收方
-  │                          │
-  ├─ 选择文件 ───────────────┤
-  ├─ 计算SHA-256 ───────────┤
-  ├─ 确定传输模式 ──────────┤
-  │  (<16MB = 直接)          │
-  │  (>=16MB = 分块)         │
-  ├─ 发送传输请求 ──────────┤
-  │                          ├─ 接受/拒绝
-  ├─ 接收响应 ──────────────┤
-  │                          │
-  ├─ [分块模式] ────────────┤
-  │  分割为分块              │
-  │  遍历每个分块：           │
-  │   ├─ 读取分块 ──────────┤
-  │   ├─ 计算哈希 ──────────┤
-  │   ├─ 通过DC发送 ────────┤
-  │   │                      ├─ 验证哈希
-  │   ├─ 等待确认 ──────────┤
-  │   │                      ├─ 发送确认
-  │   └─ 失败重试 ──────────┤
-  │                          │
-  ├─ 发送完成 ──────────────┤
-  │                          ├─ 验证文件哈希
-  │                          ├─ 保存文件
-  └─ 完成 ──────────────────┘
-```
+| 组件 | 位置 |
+|---|---|
+| Tauri 桌面壳 | `src-tauri/` |
+| Rust Hub | `src-tauri/src/hub.rs` |
+| 原生保存/下载目录 | `src-tauri/src/downloads.rs` |
+| React UI | `src/` |
+| HTTP 直传 | `src/http/HttpTransfer.tsx` |
+| 跨网络中继客户端 | `src/relay/` |
+| Node Hub（开发/自托管） | `server/hub.mjs` |
+| 加密中继服务 | `server/bridge.mjs` |
 
-## 协议规范
+## 端口
 
-### 发现协议
-- 传输层：UDP多播 (224.0.0.251:42069) + WebSocket中继
-- 格式：JSON
-- 间隔：每5秒广播，15秒超时
-- 消息类型：announce, query, response, bye
+| 端口 | 用途 |
+|---|---|
+| 42080 | 局域网 HTTP Hub |
+| 43000 | 跨网络 Bridge Relay（可选） |
+| 5173 | Vite 开发服务器（可选） |
 
-### 传输协议
-- 控制：JSON over WebSocket
-- 数据：二进制 over WebRTC DataChannel
-- 分块大小：默认256KB，自适应最大1MB
-- 完整性：每分块+全文件SHA-256
-- 重试：每分块最多3次
-- 超时：每分块30秒
+## 安全边界
 
-### 安全协议
-- 配对：6位PIN（2分钟过期）
-- 密钥交换：ECDH P-256
-- 会话密钥：AES-256-GCM
-- 信任存储：localStorage（待加密存储）
-
-## 平台说明
-
-### 桌面端（Tauri）
-- 原始UDP套接字用于mDNS/广播
-- 通过Tauri API访问文件系统
-- 系统托盘支持后台运行
-- 本地WebSocket信令服务器
-
-### 移动端（PWA）
-- WebSocket连接桌面端信令
-- WebRTC用于P2P数据传输
-- File System Access API保存文件
-- Service Worker支持离线能力
-
-## 未来规划
-
-- [ ] TURN/STUN服务器用于跨网络
-- [ ] 文件夹传输（递归）
-- [ ] 剪贴板同步
-- [ ] 中继模式端到端加密
-- [ ] 原生iOS/Android应用（如需）
+- 局域网 HTTP 是明文；配对码/token 只是访问控制，不是加密
+- 不要把 42080 暴露到公网
+- 跨网络必须使用 HTTPS Relay；中继仍是实验性
+- 原生下载通过 Tauri 命令直接读 Hub 数据目录，不经过 HTTP token

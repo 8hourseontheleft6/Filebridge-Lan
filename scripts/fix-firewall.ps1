@@ -26,12 +26,13 @@ Get-NetFirewallRule -DisplayName 'Filebridge-Lan' -ErrorAction SilentlyContinue 
 
 New-NetFirewallRule `
     -DisplayName 'Filebridge-Lan' `
-    -Description 'Filebridge-Lan LAN file transfer' `
+    -Description 'Filebridge-Lan HTTP Hub' `
     -Direction Inbound `
     -Program $exe `
     -Action Allow `
-    -Protocol Any `
+    -Protocol TCP `
+    -LocalPort 42080 `
     -Profile Private,Domain | Out-Null
 
-Write-Host 'Done: Filebridge-Lan inbound TCP/UDP is allowed on Private/Domain networks.'
+Write-Host 'Done: Filebridge-Lan inbound TCP 42080 is allowed on Private/Domain networks.'
 Write-Host 'If the phone still cannot connect, set the Wi-Fi network to Private and disable AP isolation.'

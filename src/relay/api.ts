@@ -7,6 +7,7 @@ export interface CreatedTransfer {
   id: string;
   code: string;
   uploadToken: string;
+  downloadToken: string;
   name: string;
   size: number;
   chunkSize: number;
@@ -30,6 +31,8 @@ export interface RelayMeta {
 export interface RelayLink {
   code: string;
   key: string;
+  token: string;
+  hash: string;
 }
 
 export function normalizeRelayBase(raw: string): string {
@@ -72,11 +75,13 @@ export function parseRelayHash(hash = window.location.hash): RelayLink | null {
   return {
     code: code.trim().toUpperCase(),
     key: params.get('key') || '',
+    token: params.get('token') || '',
+    hash: params.get('hash') || '',
   };
 }
 
-export function buildRelayLink(base: string, code: string, key: string): string {
-  return `${normalizeRelayBase(base)}/#receive=${encodeURIComponent(code)}&key=${encodeURIComponent(key)}`;
+export function buildRelayLink(base: string, code: string, key: string, token: string, hash: string): string {
+  return `${normalizeRelayBase(base)}/#receive=${encodeURIComponent(code)}&key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}&hash=${encodeURIComponent(hash)}`;
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -98,11 +103,14 @@ async function checkedJson<T>(response: Response): Promise<T> {
 export async function createRelayTransfer(
   base: string,
   input: { name: string; size: number; chunkSize: number },
+  accessToken = '',
   signal?: AbortSignal,
 ): Promise<CreatedTransfer> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   const response = await fetch(`${normalizeRelayBase(base)}/api/transfers`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(input),
     signal,
   });
@@ -149,10 +157,10 @@ export async function completeRelayTransfer(
   return checkedJson<RelayMeta>(response);
 }
 
-export async function getRelayByCode(base: string, code: string): Promise<RelayMeta> {
+export async function getRelayByCode(base: string, code: string, token: string): Promise<RelayMeta> {
   const response = await fetch(
     `${normalizeRelayBase(base)}/api/transfers/code/${encodeURIComponent(code.toUpperCase())}`,
-    { cache: 'no-store' },
+    { cache: 'no-store', headers: { 'X-Download-Token': token } },
   );
   return checkedJson<RelayMeta>(response);
 }
@@ -162,10 +170,11 @@ export async function downloadRelayChunk(
   id: string,
   index: number,
   code: string,
+  token: string,
   signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
   const response = await fetch(
-    `${normalizeRelayBase(base)}/api/transfers/${encodeURIComponent(id)}/chunks/${index}?code=${encodeURIComponent(code)}`,
+    `${normalizeRelayBase(base)}/api/transfers/${encodeURIComponent(id)}/chunks/${index}?code=${encodeURIComponent(code)}&token=${encodeURIComponent(token)}`,
     { cache: 'no-store', signal },
   );
   if (!response.ok) throw new Error(await errorMessage(response));

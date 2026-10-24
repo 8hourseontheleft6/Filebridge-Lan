@@ -4,6 +4,47 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { formatBytes, formatDuration } from '../lib/format';
 import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo } from '../lib/hub';
 import { JoinQr } from '../components/JoinQr';
+import { CopyButton } from '../components/CopyButton';
+
+const SESSION_STORAGE_KEY = 'filebridge_session_code';
+const TOKEN_STORAGE_KEY = 'filebridge_session_token';
+
+function readSessionCode(): string {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const fromHash = params.get('code')?.trim() || '';
+  if (fromHash) {
+    try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, fromHash); } catch { /* ignore */ }
+    return fromHash;
+  }
+  try {
+    return window.sessionStorage.getItem(SESSION_STORAGE_KEY)?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function readToken(): string {
+  try {
+    return window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+async function pairSession(code: string): Promise<{ token: string; expiresAt: number }> {
+  const response = await fetch(`${API_BASE}/api/pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) {
+    if (response.status === 401) throw new Error('配对码错误，请检查电脑上显示的 6 位配对码');
+    if (response.status === 429) throw new Error('尝试次数过多，请稍后再试');
+    if (response.status === 403) throw new Error('当前网络不允许配对，请确认电脑与手机在同一专用网络');
+    throw new Error('无法连接 Filebridge-Lan Hub，请确认电脑端服务在线');
+  }
+  return (await response.json()) as { token: string; expiresAt: number };
+}
 
 interface HubFile {
   id: string;
@@ -99,6 +140,12 @@ export function HttpTransfer() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [activeDownload, setActiveDownload] = useState<ActiveDownload | null>(null);
   const [liveUpload, setLiveUpload] = useState<LiveUpload | null>(null);
+  const [sessionCode, setSessionCode] = useState(() => readSessionCode());
+  const [token, setToken] = useState(() => readToken());
+  const [codeInput, setCodeInput] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [sessionReady, setSessionReady] = useState(false);
+  const [rotating, setRotating] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -108,6 +155,44 @@ export function HttpTransfer() {
     const timer = window.setTimeout(() => setToast(null), 4500);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // 桌面端通过 loopback /api/session 读取配对码；手机端没有这个权限，只能从链接 #code 或输入框获取。
+  // 配对码只用于换取 bearer token，文件 API 不再接受配对码。
+  useEffect(() => {
+    let alive = true;
+    const loadSession = async () => {
+      let code = readSessionCode();
+      try {
+        const response = await fetch(`${API_BASE}/api/session`, { cache: 'no-store' });
+        if (response.ok) {
+          const data = (await response.json()) as { code?: string };
+          if (data.code) code = data.code;
+        }
+      } catch {
+        // 手机/旧版 Hub 没有 /api/session
+      }
+      if (!alive) return;
+      if (code) {
+        setSessionCode(code);
+        try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, code); } catch { /* ignore */ }
+        try {
+          const paired = await pairSession(code);
+          if (!alive) return;
+          setToken(paired.token);
+          setCodeError('');
+          try { window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token); } catch { /* ignore */ }
+        } catch (error) {
+          if (!alive) return;
+          setToken('');
+          setCodeInput(code);
+          setCodeError(error instanceof Error ? error.message : '配对失败');
+        }
+      }
+      if (alive) setSessionReady(true);
+    };
+    void loadSession();
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     if (!desktop) return;
@@ -141,8 +226,18 @@ export function HttpTransfer() {
   }, [desktop]);
 
   const refresh = useCallback(async () => {
+    if (!token || !sessionReady) return;
     try {
-      const response = await fetch(`${API_BASE}/api/files`, { cache: 'no-store' });
+      const response = await fetch(`${API_BASE}/api/files`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) {
+        setToken('');
+        setCodeError('授权已过期，请重新配对');
+        try { window.sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignore */ }
+        return;
+      }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as HubFile[];
       setFiles(Array.isArray(data) ? data : []);
@@ -150,11 +245,13 @@ export function HttpTransfer() {
     } catch {
       setOnline(false);
     }
-  }, []);
+  }, [sessionReady, token]);
 
   useEffect(() => {
-    if (!online) return;
-    const source = new EventSource(`${API_BASE}/api/events`);
+    if (!online || !token || !sessionReady) return;
+    const source = new EventSource(
+      `${API_BASE}/api/events?token=${encodeURIComponent(token)}`
+    );
     const onUpload = (event: Event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data) as UploadEventPayload;
@@ -183,7 +280,7 @@ export function HttpTransfer() {
       source.removeEventListener('upload', onUpload);
       source.close();
     };
-  }, [online, refresh]);
+  }, [online, sessionReady, token, refresh]);
 
   const loadInfo = useCallback(async () => {
     try {
@@ -197,6 +294,62 @@ export function HttpTransfer() {
     }
   }, []);
 
+  const unlock = useCallback(async () => {
+    const candidate = codeInput.trim();
+    if (!/^\d{6}$/.test(candidate)) {
+      setCodeError('请输入电脑上显示的 6 位数字配对码');
+      return;
+    }
+    setCodeError('');
+    try {
+      const paired = await pairSession(candidate);
+      const response = await fetch(`${API_BASE}/api/files`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${paired.token}` },
+      });
+      if (!response.ok) throw new Error('配对成功，但读取文件列表失败，请重试');
+      const data = (await response.json()) as HubFile[];
+      setFiles(Array.isArray(data) ? data : []);
+      setSessionCode(candidate);
+      setToken(paired.token);
+      setCodeInput('');
+      try {
+        window.sessionStorage.setItem(SESSION_STORAGE_KEY, candidate);
+        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token);
+      } catch { /* ignore */ }
+      setOnline(true);
+    } catch (e) {
+      setCodeError(e instanceof Error ? e.message : '连接失败');
+    }
+  }, [codeInput]);
+
+  const rotatePairing = useCallback(async () => {
+    if (!window.confirm('重新生成配对码会使所有手机连接失效，确定继续？')) return;
+    setRotating(true);
+    setCodeError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/session/rotate`, { method: 'POST' });
+      if (response.status === 403) {
+        throw new Error('只有电脑本机可以重新生成配对码');
+      }
+      if (!response.ok) throw new Error('重新生成失败，请确认 Hub 正常运行');
+      const data = (await response.json()) as { code: string };
+      const paired = await pairSession(data.code);
+      setSessionCode(data.code);
+      setToken(paired.token);
+      setCodeInput('');
+      setFiles([]);
+      try {
+        window.sessionStorage.setItem(SESSION_STORAGE_KEY, data.code);
+        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token);
+      } catch { /* ignore */ }
+    } catch (e) {
+      setCodeError(e instanceof Error ? e.message : '重新生成失败');
+    } finally {
+      setRotating(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadInfo();
     void refresh();
@@ -207,10 +360,12 @@ export function HttpTransfer() {
   }, [loadInfo, refresh]);
 
   const uploadOne = useCallback((file: File): Promise<HubFile> => {
+    if (!token) return Promise.reject(new Error('缺少访问授权'));
     return new Promise<HubFile>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${API_BASE}/api/upload?name=${encodeURIComponent(file.name)}`);
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return;
@@ -227,7 +382,14 @@ export function HttpTransfer() {
           }
           return;
         }
-        let message = `HTTP ${xhr.status}`;
+        if (xhr.status === 401) {
+          setToken('');
+          setCodeError('授权已过期，请重新配对');
+          try { window.sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignore */ }
+        }
+        let message = xhr.status === 413
+          ? '文件超过 Hub 限制'
+          : '上传失败，请确认电脑端服务在线并重试';
         try {
           const parsed = JSON.parse(xhr.responseText);
           if (parsed?.error) message = parsed.error;
@@ -249,7 +411,7 @@ export function HttpTransfer() {
       xhrRef.current = xhr;
       xhr.send(file);
     });
-  }, []);
+  }, [token]);
 
   const handleFiles = useCallback(async (fileList: FileList | File[]) => {
     const selected = Array.from(fileList);
@@ -293,13 +455,21 @@ export function HttpTransfer() {
   const deleteFile = useCallback(async (id: string) => {
     if (!window.confirm('确定从电脑上删除这个文件？')) return;
     try {
-      const response = await fetch(`${API_BASE}/api/files/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const response = await fetch(`${API_BASE}/api/files/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) {
+        setToken('');
+        setCodeError('授权已过期，请在“连接详情”里重新配对');
+        return;
+      }
+      if (!response.ok) throw new Error('删除失败，请稍后重试');
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '删除失败');
+      setError(e instanceof Error ? e.message : '删除失败，请稍后重试');
     }
-  }, [refresh]);
+  }, [refresh, token]);
 
   const openPath = useCallback((path: string) => {
     if (!desktop) return;
@@ -358,6 +528,9 @@ export function HttpTransfer() {
   }, [activeDownload]);
 
   const phoneBase = resolvePhoneBase(info);
+  const phoneUrl = phoneBase && sessionCode
+    ? `${phoneBase}/#code=${encodeURIComponent(sessionCode)}`
+    : '';
   const isViteDev = window.location.port === '5173';
   const uploadPercent = upload
     ? (upload.total > 0 ? Math.min(100, Math.round((upload.loaded / upload.total) * 100)) : 100)
@@ -395,42 +568,148 @@ export function HttpTransfer() {
     ? Math.max(0, (liveUpload.total - liveUpload.loaded) / liveSpeed)
     : 0;
 
-  return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>⚡ 局域网直传（HTTP）</h2>
-        <span className={`chip ${online === true ? 'chip-ok' : online === false ? 'chip-bad' : 'chip-warn'}`}>
-          {online === null ? '连接中' : online ? '在线' : '离线'}
-        </span>
-      </div>
+  const pairingLabel = token ? '已配对' : codeError ? '授权已过期' : '未配对';
+  const canRotate = desktop
+    || window.location.hostname === 'localhost'
+    || window.location.hostname === '127.0.0.1';
+  const statusLabel = !sessionReady
+    ? '读取中'
+    : online === null
+      ? '连接中'
+      : online === false
+        ? '服务不可用'
+        : !token
+          ? (codeError ? '授权已过期' : '需要配对')
+          : '在线';
+  const statusClass = statusLabel === '在线'
+    ? 'chip-ok'
+    : statusLabel === '服务不可用' || statusLabel === '授权已过期'
+      ? 'chip-bad'
+      : 'chip-warn';
 
-      {online === null && <p className="hint">正在连接 HTTP Hub…</p>}
-
-      {online === false && (
-        <div className="notice notice-bad">
-          <p className="hint" style={{ marginBottom: 6 }}>HTTP Hub 未启动。在电脑上运行：</p>
-          <code style={{ color: 'var(--accent)' }}>npm run hub</code>
+  const pairingDetails = (
+    <details className="pairing-details" open={!token || undefined}>
+      <summary>
+        手动连接 / 连接详情
+        <span className={`pairing-state${token ? ' ok' : ''}`}>{pairingLabel}</span>
+      </summary>
+      <div className="pairing-body">
+        {sessionCode && (
+          <div className="pairing-code-row">
+            <span>配对码</span>
+            <strong>{sessionCode}</strong>
+            <CopyButton text={sessionCode} label="复制配对码" />
+          </div>
+        )}
+        <label className="field-label" htmlFor="http-session-code">手动输入配对码</label>
+        <div className="path-row">
+          <input
+            id="http-session-code"
+            className="input"
+            value={codeInput}
+            onChange={(event) => setCodeInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            onKeyDown={(event) => { if (event.key === 'Enter') void unlock(); }}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="6 位数字"
+            style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: 4 }}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void unlock()}
+            disabled={codeInput.length !== 6 || rotating}
+          >
+            连接
+          </button>
+        </div>
+        {canRotate && (
           <button
             type="button"
             className="btn btn-small"
-            style={{ marginLeft: 8 }}
+            onClick={() => void rotatePairing()}
+            disabled={rotating}
+          >
+            {rotating ? '生成中…' : '重新生成配对码'}
+          </button>
+        )}
+        {codeError && <p className="text-error">{codeError}</p>}
+        <p className="hint">
+          扫码成功时无需手动操作；配对码只用于换取 12 小时访问授权。
+        </p>
+      </div>
+    </details>
+  );
+
+  if (!sessionReady) {
+    return (
+      <section className="panel lan-panel">
+        <div className="panel-head">
+          <h2>⚡ 局域网直传</h2>
+          <span className="chip chip-warn">读取中</span>
+        </div>
+        <p className="hint">正在读取本机配对状态…</p>
+      </section>
+    );
+  }
+
+  if (!token) {
+    return (
+      <section className="panel lan-panel">
+        <div className="panel-head">
+          <h2>⚡ 局域网直传</h2>
+          <span className="chip chip-warn">
+            {codeError ? '授权已过期' : '需要配对'}
+          </span>
+        </div>
+        <p className="hint">
+          这是一台尚未配对的设备。扫码打开时通常会自动配对；若扫码失败，请在下方手动输入电脑上显示的 6 位配对码。
+        </p>
+        {online === false && (
+          <div className="notice notice-bad">
+            <p className="hint">电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
+            <button type="button" className="btn btn-small" onClick={() => { setOnline(null); void loadInfo(); }}>
+              重试连接
+            </button>
+          </div>
+        )}
+        {pairingDetails}
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel lan-panel">
+      <div className="panel-head">
+        <h2>⚡ 局域网直传</h2>
+        <span className={`chip ${statusClass}`}>{statusLabel}</span>
+      </div>
+
+      {online === false && (
+        <div className="notice notice-bad">
+          <p className="hint">电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
+          <button
+            type="button"
+            className="btn btn-small"
             onClick={() => {
               setOnline(null);
               void loadInfo();
               void refresh();
             }}
           >
-            重试
+            重试连接
           </button>
         </div>
       )}
 
       {online === true && (
-        phoneBase ? (
+        phoneUrl ? (
           <JoinQr
-            url={`${phoneBase}/`}
+            url={phoneUrl}
+            displayUrl={phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
             title="手机扫码打开"
-            subtitle="同一 WiFi，扫码后直接上传/下载，无需安装 App"
+            subtitle="同一 WiFi；配对码已自动带入，无需手动输入"
           />
         ) : (
           <p className="hint">
@@ -439,6 +718,8 @@ export function HttpTransfer() {
         )
       )}
 
+      {pairingDetails}
+
       <div
         className={`drop-zone ${dragging ? 'dragging' : ''}`}
         onDrop={(e) => {
@@ -446,8 +727,13 @@ export function HttpTransfer() {
           setDragging(false);
           if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
         }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
         onDragOver={(e) => {
           e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
           setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
@@ -625,7 +911,7 @@ export function HttpTransfer() {
                 ) : (
                   <a
                     className="btn btn-small"
-                    href={`${API_BASE}/api/files/${file.id}`}
+                    href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
                     download={file.name}
                     onClick={() => setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' })}
                     title={`下载 ${file.name}`}

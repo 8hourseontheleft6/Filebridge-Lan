@@ -7,7 +7,7 @@
  * - 不依赖 secure context、Service Worker、WebRTC、外部 CDN
  *
  * 启动：node server/hub.mjs
- * 端口：42080（避免与信令 42070 冲突）
+ * 端口：42080（1.4.0 起只有 HTTP Hub）
  */
 
 import http from 'node:http';
@@ -35,7 +35,15 @@ const TMP_DIR = path.join(DATA_DIR, 'tmp');
 
 const PORT = Number(process.env.FILEBRIDGE_LAN_HUB_PORT || 42080);
 const HOST = process.env.FILEBRIDGE_LAN_HUB_HOST || '0.0.0.0';
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
+
+// 6 位码只用于配对；配对成功后签发 256-bit token。
+// 所有状态仅在当前进程内存中，重启即失效。
+let SESSION_CODE = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+const TOKENS = new Map(); // token -> expiresAt (ms)
+const PAIR_FAILURES = new Map(); // ip -> { count, resetAt }
+let PAIR_GLOBAL = { count: 0, resetAt: 0 };
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -112,11 +120,188 @@ function contentDisposition(name) {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
+function setCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Range, Authorization, X-Filebridge-Token'
+    );
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'Content-Length, Content-Range, Content-Disposition'
+    );
+  }
+}
+
+function isLoopback(req) {
+  const address = req.socket.remoteAddress || '';
+  return address === '127.0.0.1'
+    || address === '::1'
+    || address === '::ffff:127.0.0.1';
+}
+
+function splitHost(value) {
+  let host = String(value || '').toLowerCase();
+  let port = null;
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
+    if (end > 0) {
+      const tail = host.slice(end + 1);
+      if (tail.startsWith(':')) {
+        const parsed = Number(tail.slice(1));
+        if (Number.isInteger(parsed)) port = parsed;
+      }
+      return { host: host.slice(1, end), port };
+    }
+  }
+  const index = host.lastIndexOf(':');
+  if (index > 0) {
+    const parsed = Number(host.slice(index + 1));
+    if (Number.isInteger(parsed)) {
+      port = parsed;
+      host = host.slice(0, index);
+    }
+  }
+  return { host, port };
+}
+
+function allowedHosts() {
+  return new Set(['localhost', '127.0.0.1', '::1', ...lanIps().map((x) => x.ip)]);
+}
+
+function allowedHost(req) {
+  const { host, port } = splitHost(req.headers.host || '');
+  if (!host) return false;
+  if (port !== null && port !== PORT) return false;
+  return allowedHosts().has(host);
+}
+
+function allowedOrigin(origin) {
+  if (!origin || origin === 'null') return false;
+  if (origin === 'http://tauri.localhost') return true;
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:') return false;
+  const host = parsed.hostname.toLowerCase();
+  const local = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  const lan = lanIps().some((x) => x.ip === host);
+  if (!local && !lan) return false;
+  const port = Number(parsed.port || 80);
+  return port === PORT || port === 5173;
+}
+
+function securityGuard(req, res) {
+  if (!allowedHost(req)) {
+    sendJson(res, 403, { error: 'Host 不允许' });
+    return false;
+  }
+  const origin = req.headers.origin;
+  if (origin && (origin === 'null' || !allowedOrigin(origin))) {
+    sendJson(res, 403, { error: 'Origin 不允许' });
+    return false;
+  }
+  setCors(req, res);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return false;
+  }
+  return true;
+}
+
+async function readJson(req, limit = 4096) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error('请求体过大');
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function secureEqual(left, right) {
+  const a = Buffer.from(String(left));
+  const b = Buffer.from(String(right));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requestToken(req, url) {
+  const authorization = String(req.headers.authorization || '');
+  const bearer = authorization.startsWith('Bearer ')
+    ? authorization.slice(7).trim()
+    : '';
+  return String(
+    bearer
+    || req.headers['x-filebridge-token']
+    || url.searchParams.get('token')
+    || ''
+  ).trim();
+}
+
+function requireToken(req, res, url) {
+  const token = requestToken(req, url);
+  if (!token) {
+    sendJson(res, 401, { error: '未授权' });
+    return false;
+  }
+  const now = Date.now();
+  for (const [stored, expiresAt] of TOKENS) {
+    if (expiresAt <= now) TOKENS.delete(stored);
+  }
+  let authorized = false;
+  for (const stored of TOKENS.keys()) {
+    if (secureEqual(stored, token)) authorized = true;
+  }
+  if (!authorized) {
+    sendJson(res, 401, { error: '未授权' });
+    return false;
+  }
+  return true;
+}
+
+function pairRateLimited(req) {
+  const ip = req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const item = PAIR_FAILURES.get(ip);
+  if (!item || now >= item.resetAt) {
+    PAIR_FAILURES.set(ip, { count: 0, resetAt: now + 60_000 });
+  }
+  const current = PAIR_FAILURES.get(ip);
+  if (current.count >= 10) return true;
+
+  if (now >= PAIR_GLOBAL.resetAt) {
+    PAIR_GLOBAL = { count: 0, resetAt: now + 60_000 };
+  }
+  if (PAIR_GLOBAL.count >= 300) return true;
+
+  current.count += 1;
+  PAIR_GLOBAL.count += 1;
+  return false;
+}
+
+function issueToken() {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const now = Date.now();
+  for (const [stored, expiresAt] of TOKENS) {
+    if (expiresAt <= now) TOKENS.delete(stored);
+  }
+  if (TOKENS.size >= 256) {
+    const oldest = TOKENS.keys().next().value;
+    if (oldest) TOKENS.delete(oldest);
+  }
+  const expiresAt = now + TOKEN_TTL_MS;
+  TOKENS.set(token, expiresAt);
+  return { token, expiresAt };
 }
 
 function sendJson(res, status, data) {
@@ -413,13 +598,7 @@ async function serveStatic(req, res, pathname) {
 }
 
 async function route(req, res) {
-  setCors(res);
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+  if (!securityGuard(req, res)) return;
 
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -435,8 +614,50 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === '/api/session' && req.method === 'GET') {
+    if (!isLoopback(req)) {
+      sendJson(res, 403, { error: '会话码只允许本机读取' });
+      return;
+    }
+    sendJson(res, 200, { code: SESSION_CODE });
+    return;
+  }
+
+  if (pathname === '/api/session/rotate' && req.method === 'POST') {
+    if (!isLoopback(req)) {
+      sendJson(res, 403, { error: '会话码只允许本机轮换' });
+      return;
+    }
+    SESSION_CODE = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    TOKENS.clear();
+    sendJson(res, 200, { code: SESSION_CODE });
+    return;
+  }
+
+  if (pathname === '/api/pair' && req.method === 'POST') {
+    if (pairRateLimited(req)) {
+      sendJson(res, 429, { error: '配对尝试次数过多，请稍后再试' });
+      return;
+    }
+    let body;
+    try {
+      body = await readJson(req);
+    } catch (error) {
+      sendJson(res, 400, { error: '请求格式错误' });
+      return;
+    }
+    const code = String(body.code || '').trim();
+    if (!secureEqual(code, SESSION_CODE)) {
+      sendJson(res, 401, { error: '配对失败' });
+      return;
+    }
+    PAIR_FAILURES.delete(req.socket.remoteAddress || 'unknown');
+    sendJson(res, 200, issueToken());
+    return;
+  }
+
   if (pathname === '/api/events' && req.method === 'GET') {
-    setCors(res);
+    if (!requireToken(req, res, url)) return;
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -465,18 +686,21 @@ async function route(req, res) {
   }
 
   if (pathname === '/api/files' && req.method === 'GET') {
+    if (!requireToken(req, res, url)) return;
     const files = Array.from(metaMap.values()).sort((a, b) => b.createdAt - a.createdAt);
     sendJson(res, 200, files);
     return;
   }
 
   if (pathname === '/api/upload' && req.method === 'POST') {
+    if (!requireToken(req, res, url)) return;
     await handleUpload(req, res, url);
     return;
   }
 
   const fileMatch = /^\/api\/files\/([0-9a-f-]+)$/i.exec(pathname);
   if (fileMatch) {
+    if (!requireToken(req, res, url)) return;
     if (req.method === 'GET' || req.method === 'HEAD') {
       await handleDownload(req, res, fileMatch[1]);
       return;

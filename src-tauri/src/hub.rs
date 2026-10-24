@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     io::SeekFrom,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -9,8 +10,9 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::{Path as AxumPath, Query, State},
+    extract::{ConnectInfo, Path as AxumPath, Query, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
@@ -24,17 +26,14 @@ use sha2::{Digest, Sha256};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter},
-    sync::{broadcast, RwLock},
+    sync::{broadcast, Mutex, RwLock},
 };
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::io::ReaderStream;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    services::{ServeDir, ServeFile},
-};
+use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-const HUB_VERSION: &str = "1.3.1";
+const HUB_VERSION: &str = "1.4.0";
 
 // GUI 应用从资源管理器启动时 stdout 可能不可用；日志失败不能中断传输。
 macro_rules! hub_log {
@@ -70,14 +69,24 @@ pub struct HubState {
     inner: Arc<HubInner>,
 }
 
+struct TokenEntry {
+    token: String,
+    expires_at: Instant,
+}
+
 struct HubInner {
     port: u16,
+    local_ips: Vec<String>,
     files_dir: PathBuf,
     meta_dir: PathBuf,
     tmp_dir: PathBuf,
     dist_dir: PathBuf,
     files: RwLock<HashMap<String, Meta>>,
     events: broadcast::Sender<UploadEvent>,
+    session_code: RwLock<String>,
+    tokens: RwLock<Vec<TokenEntry>>,
+    pair_failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
+    pair_global: Mutex<(u32, Instant)>,
 }
 
 #[derive(Debug)]
@@ -176,46 +185,59 @@ pub async fn new(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> std::io::Re
     hub_log!("[hub] 已加载 {} 个文件索引", files.len());
 
     let (events, _) = broadcast::channel(128);
+    let local_ips = local_ip_address::list_afinet_netifas()
+        .map(|interfaces| {
+            interfaces
+                .into_iter()
+                .filter_map(|(_, ip)| match ip {
+                    std::net::IpAddr::V4(ip) if !ip.is_loopback() => Some(ip.to_string()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(HubState {
         inner: Arc::new(HubInner {
             port,
+            local_ips,
             files_dir,
             meta_dir,
             tmp_dir,
             dist_dir,
             files: RwLock::new(files),
             events,
+            session_code: RwLock::new(generate_session_code()),
+            tokens: RwLock::new(Vec::new()),
+            pair_failures: Mutex::new(HashMap::new()),
+            pair_global: Mutex::new((0, Instant::now())),
         }),
     })
 }
 
 pub fn router(state: HubState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .expose_headers([
-            header::CONTENT_DISPOSITION,
-            header::CONTENT_RANGE,
-            header::CONTENT_LENGTH,
-        ]);
-
     let dist = state.inner.dist_dir.clone();
     let index = dist.join("index.html");
     let static_files = ServeDir::new(dist).not_found_service(ServeFile::new(index));
 
-    let api = Router::new()
-        .route("/info", get(get_info))
+    let protected = Router::new()
         .route("/files", get(list_files))
         .route("/upload", post(upload))
         .route("/events", get(sse_events))
         .route("/files/{id}", get(download).delete(delete_file))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
+
+    let api = Router::new()
+        .route("/info", get(get_info))
+        .route("/session", get(get_session))
+        .route("/session/rotate", post(rotate_session))
+        .route("/pair", post(pair))
+        .merge(protected)
         .fallback(api_not_found);
 
     Router::new()
         .nest("/api", api)
         .fallback_service(static_files)
-        .layer(cors)
+        .layer(middleware::from_fn_with_state(state.clone(), security_guard))
         .with_state(state)
 }
 
@@ -229,15 +251,325 @@ pub async fn serve(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> anyhow::R
         hub_log!("[hub]   手机访问: http://{ip}:{port}");
     }
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
+}
+
+fn generate_session_code() -> String {
+    let bytes = Uuid::new_v4().into_bytes();
+    let value = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) % 1_000_000;
+    format!("{value:06}")
+}
+
+#[derive(Serialize)]
+struct SessionInfo {
+    code: String,
+}
+
+#[derive(Deserialize)]
+struct PairRequest {
+    code: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PairResponse {
+    token: String,
+    expires_at: u64,
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (a, b) in left.iter().zip(right.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
+fn host_parts(value: &str) -> (String, Option<u16>) {
+    if let Some(rest) = value.strip_prefix('[') {
+        if let Some((host, tail)) = rest.split_once(']') {
+            let port = tail.strip_prefix(':').and_then(|port| port.parse().ok());
+            return (host.to_ascii_lowercase(), port);
+        }
+    }
+    if let Some((host, port)) = value.rsplit_once(':') {
+        if let Ok(port) = port.parse::<u16>() {
+            return (host.to_ascii_lowercase(), Some(port));
+        }
+    }
+    (value.to_ascii_lowercase(), None)
+}
+
+fn allowed_host(state: &HubState, host: &str) -> bool {
+    let (name, port) = host_parts(host);
+    if port.is_some_and(|port| port != state.inner.port) {
+        return false;
+    }
+    if name == "localhost" || name == "127.0.0.1" || name == "::1" {
+        return true;
+    }
+    state.inner.local_ips.iter().any(|ip| ip == &name)
+}
+
+fn allowed_origin(state: &HubState, origin: &str) -> bool {
+    if origin == "http://tauri.localhost" {
+        return true;
+    }
+    let Some(rest) = origin.strip_prefix("http://") else {
+        return false;
+    };
+    let (host, port) = host_parts(rest);
+    let port = port.unwrap_or(80);
+    let local = host == "localhost" || host == "127.0.0.1" || host == "::1";
+    let lan = state.inner.local_ips.iter().any(|ip| ip == &host);
+    if !(local || lan) {
+        return false;
+    }
+    port == state.inner.port || port == 5173
+}
+
+async fn security_guard(
+    State(state): State<HubState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !allowed_host(&state, host) {
+        return ApiError::new(StatusCode::FORBIDDEN, "Host 不允许").into_response();
+    }
+
+    let origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if let Some(origin) = origin.as_deref() {
+        if origin == "null" || !allowed_origin(&state, origin) {
+            return ApiError::new(StatusCode::FORBIDDEN, "Origin 不允许").into_response();
+        }
+    }
+
+    let mut response = if request.method() == axum::http::Method::OPTIONS {
+        Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(Body::empty())
+            .unwrap_or_else(|_| StatusCode::NO_CONTENT.into_response())
+    } else {
+        next.run(request).await
+    };
+
+    if let Some(origin) = origin.as_deref() {
+        if let Ok(value) = HeaderValue::from_str(origin) {
+            response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, value);
+            response.headers_mut().insert(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                HeaderValue::from_static("GET, POST, DELETE, OPTIONS"),
+            );
+            response.headers_mut().insert(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                HeaderValue::from_static(
+                    "Content-Type, Range, Authorization, X-Filebridge-Token",
+                ),
+            );
+            response.headers_mut().insert(
+                header::ACCESS_CONTROL_EXPOSE_HEADERS,
+                HeaderValue::from_static(
+                    "Content-Disposition, Content-Range, Content-Length",
+                ),
+            );
+            response.headers_mut().insert(header::VARY, HeaderValue::from_static("Origin"));
+        }
+    }
+
+    response
+}
+
+fn request_token(request: &Request) -> Option<String> {
+    if let Some(value) = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(value.to_string());
+    }
+    if let Some(value) = request
+        .headers()
+        .get("x-filebridge-token")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(value.to_string());
+    }
+    request.uri().query().and_then(|query| {
+        query.split('&').find_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            if key == "token" && !value.is_empty() {
+                Some(value.to_string())
+            } else {
+                None
+            }
+        })
+    })
+}
+
+async fn require_token(
+    State(state): State<HubState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Some(provided) = request_token(&request) else {
+        return ApiError::new(StatusCode::UNAUTHORIZED, "未授权").into_response();
+    };
+    let now = Instant::now();
+    let mut tokens = state.inner.tokens.write().await;
+    tokens.retain(|entry| entry.expires_at > now);
+    let authorized = tokens
+        .iter()
+        .any(|entry| constant_time_eq(&entry.token, &provided));
+    drop(tokens);
+    if !authorized {
+        return ApiError::new(StatusCode::UNAUTHORIZED, "未授权").into_response();
+    }
+    next.run(request).await
+}
+
+fn token_ttl() -> Duration {
+    Duration::from_secs(12 * 60 * 60)
+}
+
+async fn pair_limited(state: &HubState, ip: IpAddr) -> bool {
+    let now = Instant::now();
+    let mut failures = state.inner.pair_failures.lock().await;
+    let window = failures
+        .entry(ip)
+        .or_insert((0, now + Duration::from_secs(60)));
+    if now >= window.1 {
+        *window = (0, now + Duration::from_secs(60));
+    }
+    if window.0 >= 10 {
+        return true;
+    }
+    window.0 += 1;
+    drop(failures);
+
+    let mut global = state.inner.pair_global.lock().await;
+    if now >= global.1 {
+        *global = (0, now + Duration::from_secs(60));
+    }
+    global.0 += 1;
+    global.0 > 300
+}
+
+async fn pair(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<PairRequest>,
+) -> ApiResult<Json<PairResponse>> {
+    if pair_limited(&state, addr.ip()).await {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "配对尝试次数过多，请稍后再试",
+        ));
+    }
+
+    let expected = state.inner.session_code.read().await.clone();
+    if !constant_time_eq(body.code.trim(), &expected) {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "配对失败"));
+    }
+
+    state.inner.pair_failures.lock().await.remove(&addr.ip());
+    let token = format!(
+        "{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    );
+    let expires_at = Instant::now() + token_ttl();
+    {
+        let mut tokens = state.inner.tokens.write().await;
+        let now = Instant::now();
+        tokens.retain(|entry| entry.expires_at > now);
+        if tokens.len() >= 256 {
+            tokens.remove(0);
+        }
+        tokens.push(TokenEntry { token: token.clone(), expires_at });
+    }
+    let expires_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .saturating_add(token_ttl())
+        .as_millis() as u64;
+
+    Ok(Json(PairResponse { token, expires_at: expires_ms }))
+}
+
+async fn get_session(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> ApiResult<Json<SessionInfo>> {
+    if !addr.ip().is_loopback() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "会话码只允许本机读取",
+        ));
+    }
+    let code = state.inner.session_code.read().await.clone();
+    Ok(Json(SessionInfo { code }))
+}
+
+async fn rotate_session(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> ApiResult<Json<SessionInfo>> {
+    if !addr.ip().is_loopback() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "会话码只允许本机轮换",
+        ));
+    }
+    let code = generate_session_code();
+    *state.inner.session_code.write().await = code.clone();
+    state.inner.tokens.write().await.clear();
+    Ok(Json(SessionInfo { code }))
 }
 
 async fn get_info(State(state): State<HubState>) -> Json<Info> {
     let files = state.inner.files.read().await.len();
-    let ips = local_ip_address::local_ip()
-        .map(|ip| vec![ip.to_string()])
-        .unwrap_or_default();
+    let mut ips: Vec<String> = state
+        .inner
+        .local_ips
+        .iter()
+        .filter(|ip| !ip.starts_with("169.254."))
+        .cloned()
+        .collect();
+    ips.sort_by_key(|ip| {
+        if ip.starts_with("192.168.") {
+            0
+        } else if ip.starts_with("10.") {
+            1
+        } else if ip.starts_with("172.") {
+            2
+        } else {
+            3
+        }
+    });
 
     Json(Info {
         name: "Filebridge-Lan Hub",

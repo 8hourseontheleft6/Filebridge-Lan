@@ -27,12 +27,13 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
+import { resolveClientIp } from './bridge-util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 const PORT = Number(process.env.BRIDGE_PORT || 43000);
 const HOST = process.env.BRIDGE_HOST || '0.0.0.0';
 const DATA_DIR = path.resolve(process.env.BRIDGE_DATA || path.join(ROOT, '.filebridge-bridge'));
@@ -44,11 +45,62 @@ const TTL_HOURS = Number(process.env.BRIDGE_TTL_HOURS || 24);
 const DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024;
 const MAX_CHUNKS = 4096;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+const TRUST_PROXY = process.env.BRIDGE_TRUST_PROXY === '1';
+const ALLOW_HTTP = process.env.BRIDGE_ALLOW_HTTP === '1';
+const ACCESS_TOKEN = String(process.env.BRIDGE_ACCESS_TOKEN || '').trim();
+const ALLOW_ANONYMOUS = process.env.BRIDGE_ALLOW_ANONYMOUS === '1';
+const MAX_CONCURRENT = Number(process.env.BRIDGE_MAX_CONCURRENT || 16);
+const TRUSTED_PROXIES = new Set(
+  String(process.env.BRIDGE_TRUSTED_PROXIES || '127.0.0.1,::1,::ffff:127.0.0.1')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
+
+function isLoopbackAddress(address) {
+  return address === '127.0.0.1'
+    || address === '::1'
+    || address === '::ffff:127.0.0.1';
+}
+
+function publicUrlIsLocal() {
+  try {
+    const parsed = new URL(PUBLIC_URL);
+    return parsed.hostname === 'localhost'
+      || parsed.hostname === '127.0.0.1'
+      || parsed.hostname === '::1'
+      || parsed.hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+if (!PUBLIC_URL.startsWith('https://') && !publicUrlIsLocal() && !ALLOW_HTTP) {
+  throw new Error(
+    'BRIDGE_PUBLIC_URL 必须使用 HTTPS（非回环地址）；本地开发可显式设置 BRIDGE_ALLOW_HTTP=1'
+  );
+}
+
+if (!publicUrlIsLocal() && !ACCESS_TOKEN && !ALLOW_ANONYMOUS) {
+  throw new Error(
+    '非本地中继必须设置 BRIDGE_ACCESS_TOKEN（发送方创建传输的访问令牌）；如明确要匿名公开实例，设置 BRIDGE_ALLOW_ANONYMOUS=1'
+  );
+}
+
+if (!publicUrlIsLocal() && !TRUST_PROXY && !ALLOW_HTTP) {
+  throw new Error(
+    '非本地中继必须设置 BRIDGE_TRUST_PROXY=1，并由可信 HTTPS 反向代理发送 X-Forwarded-Proto=https'
+  );
+}
+
+let activeDownloads = 0;
+let activeUploads = 0;
 
 const TRANSFERS_DIR = path.join(DATA_DIR, 'transfers');
 const transfers = new Map();
 const codeIndex = new Map();
 let usedBytes = 0;
+let reservedBytes = 0;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -216,9 +268,9 @@ async function cleanupExpired() {
   }
 }
 
-function getCodeFromRequest(req, url) {
-  const header = req.headers['x-transfer-code'];
-  return String(url.searchParams.get('code') || header || '').toUpperCase();
+function getDownloadToken(req, url) {
+  const header = req.headers['x-download-token'];
+  return String(url.searchParams.get('token') || header || '').trim();
 }
 
 function safeEqual(a, b) {
@@ -240,14 +292,69 @@ function rateLimit(ip, bucket, max, windowMs) {
   return item.count <= max;
 }
 
+function globalRateLimit(bucket, max, windowMs) {
+  return rateLimit('*', bucket, max, windowMs);
+}
+
+function isTrustedProxy(req) {
+  return TRUST_PROXY && TRUSTED_PROXIES.has(req.socket.remoteAddress || '');
+}
+
 function clientIp(req) {
-  return req.socket.remoteAddress || 'unknown';
+  if (!isTrustedProxy(req)) {
+    return req.socket.remoteAddress || 'unknown';
+  }
+  return resolveClientIp(
+    req.socket.remoteAddress || '',
+    req.headers['x-forwarded-for'],
+    TRUSTED_PROXIES
+  );
+}
+
+function isSecureRequest(req) {
+  if (TRUST_PROXY && isTrustedProxy(req)) {
+    const proto = String(req.headers['x-forwarded-proto'] || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    return proto === 'https';
+  }
+  return isLoopbackAddress(req.socket.remoteAddress || '');
+}
+
+function requireDownloadAccess(meta, req, url) {
+  const token = getDownloadToken(req, url);
+  return Boolean(token) && safeEqual(token, meta.downloadToken || '');
+}
+
+function reserveStorage(size) {
+  if (usedBytes + reservedBytes + size > MAX_STORAGE) {
+    return false;
+  }
+  reservedBytes += size;
+  return true;
+}
+
+function releaseReservation(size) {
+  reservedBytes = Math.max(0, reservedBytes - size);
 }
 
 async function createTransfer(req, res) {
   const ip = clientIp(req);
-  if (!rateLimit(ip, 'create', 20, 60_000)) {
+  if (!rateLimit(ip, 'create', 20, 60_000) || !globalRateLimit('create', 200, 60_000)) {
     return sendJson(res, 429, { error: '创建过于频繁，请稍后再试' });
+  }
+
+  if (ACCESS_TOKEN) {
+    const authorization = String(req.headers.authorization || '');
+    const provided = authorization.startsWith('Bearer ')
+      ? authorization.slice(7).trim()
+      : '';
+    if (!provided || !safeEqual(provided, ACCESS_TOKEN)) {
+      return sendJson(res, 401, { error: '未授权' });
+    }
+  } else if (!isLoopbackAddress(req.socket.remoteAddress || '')) {
+    return sendJson(res, 401, { error: '需要中继访问令牌' });
   }
 
   let body;
@@ -273,7 +380,7 @@ async function createTransfer(req, res) {
   if (chunks > MAX_CHUNKS) {
     return sendJson(res, 413, { error: '分片数量过多' });
   }
-  if (usedBytes + size > MAX_STORAGE) {
+  if (!reserveStorage(size)) {
     return sendJson(res, 507, { error: '中继存储空间已满，请稍后再试' });
   }
 
@@ -281,11 +388,13 @@ async function createTransfer(req, res) {
   let code = makeCode();
   while (codeIndex.has(code)) code = makeCode();
   const uploadToken = randomToken(32);
+  const downloadToken = randomToken(32);
   const now = Date.now();
   const meta = {
     id,
     code,
     uploadToken,
+    downloadToken,
     name,
     size,
     chunkSize,
@@ -295,17 +404,25 @@ async function createTransfer(req, res) {
     expiresAt: now + TTL_HOURS * 3600 * 1000,
   };
 
-  await fsp.mkdir(path.join(transferDir(id), 'chunks'), { recursive: true });
-  await saveMeta(meta);
-  transfers.set(id, meta);
-  codeIndex.set(code, id);
-  usedBytes += size;
+  try {
+    await fsp.mkdir(path.join(transferDir(id), 'chunks'), { recursive: true });
+    await saveMeta(meta);
+    transfers.set(id, meta);
+    codeIndex.set(code, id);
+    releaseReservation(size);
+    usedBytes += size;
+  } catch (error) {
+    releaseReservation(size);
+    await fsp.rm(transferDir(id), { recursive: true, force: true }).catch(() => {});
+    return sendJson(res, 500, { error: '创建传输失败，请稍后重试' });
+  }
   log(`创建传输 ${code} ${name} (${size} bytes, ${chunks} chunks)`);
 
   sendJson(res, 201, {
     id,
     code,
     uploadToken,
+    downloadToken,
     name,
     size,
     chunkSize,
@@ -313,6 +430,14 @@ async function createTransfer(req, res) {
     expiresAt: meta.expiresAt,
     publicUrl: PUBLIC_URL,
   });
+}
+
+function expectedChunkSize(meta, index) {
+  const plain = index < meta.chunks - 1
+    ? meta.chunkSize
+    : Math.max(0, meta.size - (meta.chunks - 1) * meta.chunkSize);
+  // 12-byte IV + AES-GCM tag（16-byte）
+  return plain + 28;
 }
 
 async function uploadChunk(req, res, id, indexText) {
@@ -324,6 +449,14 @@ async function uploadChunk(req, res, id, indexText) {
   const token = req.headers['x-upload-token'] || '';
   if (!safeEqual(token, meta.uploadToken)) {
     return sendJson(res, 403, { error: '上传令牌无效' });
+  }
+
+  const ip = clientIp(req);
+  if (!rateLimit(ip, 'upload', 120, 60_000) || !globalRateLimit('upload', 2000, 60_000)) {
+    return sendJson(res, 429, { error: '上传过于频繁，请稍后再试' });
+  }
+  if (activeUploads >= MAX_CONCURRENT) {
+    return sendJson(res, 503, { error: '中继并发已满，请稍后再试' });
   }
 
   const max = meta.chunkSize + 64;
@@ -346,6 +479,7 @@ async function uploadChunk(req, res, id, indexText) {
     },
   });
 
+  activeUploads += 1;
   try {
     await pipeline(req, limiter, fs.createWriteStream(temp, { flags: 'w' }));
     if (received === 0) throw new Error('分片为空');
@@ -354,6 +488,8 @@ async function uploadChunk(req, res, id, indexText) {
   } catch (error) {
     await fsp.unlink(temp).catch(() => {});
     if (!res.headersSent) sendJson(res, 400, { error: `写入分片失败: ${error.message}` });
+  } finally {
+    activeUploads -= 1;
   }
 }
 
@@ -369,9 +505,11 @@ async function completeTransfer(req, res, id) {
   for (let index = 0; index < meta.chunks; index += 1) {
     try {
       const stat = await fsp.stat(chunkPath(id, index));
-      if (!stat.isFile() || stat.size === 0) throw new Error('empty');
+      if (!stat.isFile() || stat.size !== expectedChunkSize(meta, index)) {
+        throw new Error('invalid size');
+      }
     } catch {
-      return sendJson(res, 409, { error: `分片 ${index} 尚未上传` });
+      return sendJson(res, 409, { error: `分片 ${index} 缺失或大小不符` });
     }
   }
 
@@ -383,15 +521,18 @@ async function completeTransfer(req, res, id) {
   sendJson(res, 200, publicMeta(meta));
 }
 
-async function getByCode(req, res, code) {
+async function getByCode(req, res, code, url) {
   const ip = clientIp(req);
-  if (!rateLimit(ip, 'lookup', 60, 60_000)) {
+  if (!rateLimit(ip, 'lookup', 60, 60_000) || !globalRateLimit('lookup', 1200, 60_000)) {
     return sendJson(res, 429, { error: '查询过于频繁，请稍后再试' });
   }
   const id = codeIndex.get(code.toUpperCase());
   const meta = id ? transfers.get(id) : null;
   if (!meta || meta.expiresAt <= Date.now()) {
     return sendJson(res, 404, { error: '传输码不存在或已过期' });
+  }
+  if (!requireDownloadAccess(meta, req, url)) {
+    return sendJson(res, 401, { error: '未授权' });
   }
   sendJson(res, 200, publicMeta(meta));
 }
@@ -401,10 +542,16 @@ async function downloadChunk(req, res, id, indexText, url) {
   if (!meta) return sendJson(res, 404, { error: '传输不存在或已过期' });
   if (!meta.completed) return sendJson(res, 409, { error: '发送方尚未完成上传' });
   if (!isChunkIndex(indexText, meta.chunks)) return sendJson(res, 400, { error: '分片序号不合法' });
+  if (!requireDownloadAccess(meta, req, url)) {
+    return sendJson(res, 401, { error: '未授权' });
+  }
 
-  const code = getCodeFromRequest(req, url);
-  if (!code || !safeEqual(code, meta.code)) {
-    return sendJson(res, 403, { error: '传输码无效' });
+  const ip = clientIp(req);
+  if (!rateLimit(ip, 'download', 120, 60_000) || !globalRateLimit('download', 3000, 60_000)) {
+    return sendJson(res, 429, { error: '下载过于频繁，请稍后再试' });
+  }
+  if (activeDownloads >= MAX_CONCURRENT) {
+    return sendJson(res, 503, { error: '中继并发已满，请稍后再试' });
   }
 
   const file = chunkPath(id, Number(indexText));
@@ -420,7 +567,12 @@ async function downloadChunk(req, res, id, indexText, url) {
     'Content-Length': stat.size,
     'Cache-Control': 'no-store',
   });
-  await pipeline(fs.createReadStream(file), res);
+  activeDownloads += 1;
+  try {
+    await pipeline(fs.createReadStream(file), res);
+  } finally {
+    activeDownloads -= 1;
+  }
 }
 
 async function deleteTransfer(req, res, id) {
@@ -457,6 +609,10 @@ async function serveStatic(req, res, pathname) {
 
 async function route(req, res) {
   setCors(res);
+  if (!isSecureRequest(req)) {
+    sendJson(res, 426, { error: '公网中继必须使用 HTTPS' });
+    return;
+  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
@@ -510,7 +666,7 @@ async function route(req, res) {
 
   const codeMatch = /^\/api\/transfers\/code\/([A-Z0-9]{8})$/i.exec(pathname);
   if (codeMatch && req.method === 'GET') {
-    await getByCode(req, res, codeMatch[1]);
+    await getByCode(req, res, codeMatch[1], url);
     return;
   }
 

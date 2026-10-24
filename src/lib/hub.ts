@@ -1,5 +1,4 @@
 export const HUB_PORT = 42080;
-export const SIGNAL_PORT = 42070;
 
 export interface HubInfo {
   name: string;
@@ -29,15 +28,6 @@ export function resolveApiBase(): string {
 
 export const API_BASE = resolveApiBase();
 
-/** WebRTC 信令地址；Tauri 内嵌信令在本机 127.0.0.1，手机端用当前局域网 host。 */
-export function resolveSignalUrl(): string {
-  if (typeof window === 'undefined') return `ws://127.0.0.1:${SIGNAL_PORT}`;
-  const host = isTauriHost() ? '127.0.0.1' : window.location.hostname;
-  return `ws://${host}:${SIGNAL_PORT}`;
-}
-
-export const SIGNAL_URL = resolveSignalUrl();
-
 function isLocalHost(host: string): boolean {
   return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
 }
@@ -51,7 +41,7 @@ function isIPv4(value: string): boolean {
  * 优先使用 Hub 返回的局域网 IPv4；没有 Hub 信息时退回当前页面的局域网 host。
  */
 export function resolvePhoneBase(info?: HubInfo | null): string {
-  const fromHub = (info?.ips || []).find((ip) => isIPv4(ip) && !ip.startsWith('127.'));
+  const fromHub = (info?.ips || []).find((ip) => isIPv4(ip) && !ip.startsWith('127.') && !ip.startsWith('169.254.'));
   const host = fromHub || (!isLocalHost(window.location.hostname) && isIPv4(window.location.hostname)
     ? window.location.hostname
     : '');

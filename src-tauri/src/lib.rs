@@ -1,6 +1,5 @@
 pub mod downloads;
 pub mod hub;
-pub mod signaling;
 
 use std::path::PathBuf;
 use tauri::Manager;
@@ -108,16 +107,6 @@ pub fn run() {
 
                 if let Err(error) = hub::serve(port, data_dir, dist_dir).await {
                     eprintln!("[hub] 启动失败（端口 {port} 可能已被占用）: {error}");
-                }
-            });
-
-            tauri::async_runtime::spawn(async move {
-                let port: u16 = std::env::var("FILEBRIDGE_LAN_SIGNAL_PORT")
-                    .ok()
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(42070);
-                if let Err(error) = signaling::serve(port).await {
-                    eprintln!("[signal] 启动失败（端口 {port} 可能已被占用）: {error}");
                 }
             });
 

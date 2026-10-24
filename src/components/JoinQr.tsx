@@ -3,14 +3,17 @@ import { CopyButton } from './CopyButton';
 
 export function JoinQr({
   url,
+  displayUrl,
   title,
   subtitle,
 }: {
   url: string;
+  displayUrl?: string;
   title: string;
   subtitle?: string;
 }) {
   if (!url) return null;
+  const shown = displayUrl || url;
 
   return (
     <div className="qr-card" aria-label={title}>
@@ -28,7 +31,7 @@ export function JoinQr({
       <div className="qr-info">
         <strong>{title}</strong>
         {subtitle && <p className="hint">{subtitle}</p>}
-        <code className="qr-url" title={url}>{url}</code>
+        <code className="qr-url" title="完整链接已隐藏，请使用复制按钮">{shown}</code>
         <div className="qr-actions">
           <CopyButton text={url} label="复制链接" />
         </div>

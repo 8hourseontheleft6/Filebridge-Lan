@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.4.0 - 2026-10-24
+
+移除 WebRTC 房间，HTTP 直传改为“配对码 + bearer token”；UI 改为局域网/跨网络中继两种模式。**Breaking change。**
+
+### 认证与安全
+
+- Hub 启动生成 6 位配对码；桌面通过 loopback + 本机 Origin 读取 `/api/session`
+- 二维码 `/#code=...`；手机扫码/输入配对码后 `POST /api/pair`
+- 配对成功签发 256-bit token，12 小时过期；文件列表/上传/下载/删除/SSE 只接受 token
+- 6 位码不再作为文件 API 凭据；token 校验常量时间
+- 失败按 IP 10 次/分钟 + 全局 300 次/分钟限流；轮换会清空所有 token
+- Host/Origin 白名单：Tauri、Hub 自身、Vite；拒绝 null Origin、任意域名、伪造 Host、DNS rebinding
+- CORS 移除 `*`，只回显允许 Origin
+- 防火墙改为程序级 TCP 42080、Private/Domain；移除 Any
+
+### 移除
+
+- WebRTC 房间、`server/signaling.ts`、`src-tauri/src/signaling.rs`
+- 42070 信令端口、`?room=` 扫码进房、房间码 UI
+- `src/transfer`、`src/network` 死代码
+- `tsx` 开发依赖
+
+### 跨网络中继
+
+- 增加 downloadToken；元数据/分片下载鉴权
+- 公网实例必须设置 `BRIDGE_ACCESS_TOKEN`；创建传输需要访问令牌
+- 非 loopback 强制 HTTPS（426）；可信代理 XFF 右向左解析
+- IP + 全局限流、上传/下载并发上限；存储配额原子预留
+- 分片预期大小、最终大小和 SHA-256 校验；hash 只在 fragment
+- 仍是实验性功能，未完成真实 WAN 验证；不声称生产可用
+
+### 桌面修复
+
+- 关闭 Tauri 原生 drag-drop 拦截，恢复 WebView2 的 HTML5 文件拖放
+- 修复“打开所在文件夹”使用 Explorer `/select` 时路径未作为完整带引号绝对路径传递的问题；避免打开“文档”默认目录
+
+### 验证
+
+- Node Hub 冒烟：Host/Origin、配对 token、401、上传/下载/Range/query token/CORS/删除/轮换/配对限流
+- Rust Hub：恶意 Origin/Host、配对 token、上传下载、轮换后 token 失效
+- 桌面 UI 自动配对；手机无码提示、带 `#code` 自动配对
+- `npm run check` / `npm run build` / Tauri NSIS 构建通过
+- 42070 不再监听
+
 ## 1.3.1 - 2026-10-24
 
 修复 WebRTC 房间一直停在“连接中”。
