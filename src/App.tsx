@@ -685,7 +685,7 @@ function App() {
         <main className="main relay-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.3.0 · 端到端加密中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.3.1 · 端到端加密中继</footer>
       </div>
     );
   }
@@ -767,7 +767,7 @@ function App() {
           )}
           <RelayTransfer />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.3.0 · 局域网直传 / 跨网络中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.3.1 · 局域网直传 / 跨网络中继</footer>
         {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       </div>
     );
@@ -940,7 +940,7 @@ function App() {
           ))}
         </div>
       </section>
-      <footer className="app-footer">Filebridge-Lan v1.3.0 · 仅局域网内传输</footer>
+      <footer className="app-footer">Filebridge-Lan v1.3.1 · 仅局域网内传输</footer>
     </div>
   );
 }

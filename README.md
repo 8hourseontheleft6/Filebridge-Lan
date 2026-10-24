@@ -23,22 +23,22 @@
 
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.3.0_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.3.1_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.3.0_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.3.1_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
-- 安装结束时如出现 **UAC** 提示，请允许一次：用于移除防火墙 Block 规则并放行专用网络
+- 安装结束时如出现 **UAC** 提示，请允许一次：用于移除防火墙 Block 规则并放行专用网络的 **TCP/UDP**
 - 安装包未签名，Windows SmartScreen 可能提示“未知发布者”
-- 首次运行如防火墙弹窗，请允许专用网络（TCP 42070 / 42080）
+- 首次运行如防火墙弹窗，请允许专用网络（TCP/UDP 42070 / 42080 及 WebRTC）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.3.0.md](docs/RELEASE-1.3.0.md)
+版本说明：[docs/RELEASE-1.3.1.md](docs/RELEASE-1.3.1.md)
 
 > 从旧 FileBridge 升级：1.2.x 使用新的应用标识，旧版本会保留；首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
@@ -98,7 +98,7 @@ npm run bridge
 
 通常是 Windows 防火墙阻止了 `filebridge-lan.exe`。`npm run hub` 用的是 `node.exe`，已有 Allow 规则，所以能访问。
 
-1.2.1 安装器会请求一次 UAC 并自动修复。已经安装 1.2.0 的，以管理员身份运行：
+1.3.1 安装器会请求一次 UAC 并自动修复（TCP/UDP）；已经安装旧版本的，以管理员身份运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\fix-firewall.ps1
@@ -110,7 +110,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\fix-firewall.ps1
 Get-NetFirewallRule -DisplayName 'filebridge-lan.exe' | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName 'Filebridge-Lan' -Direction Inbound `
   -Program "$env:LOCALAPPDATA\Filebridge-Lan\filebridge-lan.exe" `
-  -Action Allow -Protocol TCP -Profile Private,Domain
+  -Action Allow -Protocol Any -Profile Private,Domain
 ```
 
 其他检查：
@@ -119,6 +119,15 @@ New-NetFirewallRule -DisplayName 'Filebridge-Lan' -Direction Inbound `
 - Windows 网络配置为“专用”而不是“公用”
 - 手机打开 `http://<电脑IP>:42080/api/info`，能返回 JSON 说明端口已通
 - 确认 42080/42070 没有被旧进程/Node Hub 占用；`npm run hub` 与 App 不要同时跑
+
+### WebRTC 房间一直“连接中”？
+
+1.3.1 修复了 WebView2 默认把 host ICE 候选隐藏为 mDNS `xxx.local` 的问题。iPhone/Safari 和部分路由器无法解析 mDNS，会一直停在 connecting；现在会直接使用局域网 IP 候选。
+
+- 确认安装 **1.3.1**；1.3.0 只放行 TCP，且仍使用 mDNS 候选
+- 防火墙需允许 **UDP**；1.3.1 安装器会添加 `Filebridge-Lan` 的 Any 规则
+- 手机与电脑必须在同一专用网络/VLAN，关闭 AP 隔离
+- 仍然不行时先用 HTTP 直传（大文件更稳）；跨网络使用加密中继
 
 ## 架构
 

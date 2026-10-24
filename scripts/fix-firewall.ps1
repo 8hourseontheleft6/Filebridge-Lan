@@ -30,8 +30,8 @@ New-NetFirewallRule `
     -Direction Inbound `
     -Program $exe `
     -Action Allow `
-    -Protocol TCP `
+    -Protocol Any `
     -Profile Private,Domain | Out-Null
 
-Write-Host 'Done: Filebridge-Lan inbound is allowed on Private/Domain networks.'
+Write-Host 'Done: Filebridge-Lan inbound TCP/UDP is allowed on Private/Domain networks.'
 Write-Host 'If the phone still cannot connect, set the Wi-Fi network to Private and disable AP isolation.'

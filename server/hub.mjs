@@ -35,7 +35,7 @@ const TMP_DIR = path.join(DATA_DIR, 'tmp');
 
 const PORT = Number(process.env.FILEBRIDGE_LAN_HUB_PORT || 42080);
 const HOST = process.env.FILEBRIDGE_LAN_HUB_HOST || '0.0.0.0';
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

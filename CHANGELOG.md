@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.1 - 2026-10-24
+
+修复 WebRTC 房间一直停在“连接中”。
+
+### 修复
+
+- Tauri WebView2 关闭 mDNS host 候选隐藏（`WebRtcHideLocalIpsWithMdns`），使用局域网 IP 候选，修复 iPhone/Safari 无法解析 `.local`
+- 安装器防火墙规则由 TCP 改为 **Any**（TCP/UDP），仍限 Private/Domain
+- 手动修复脚本同步支持 UDP
+- Rust 信令先发 `room_joined` 再通知 host `peer_joined`
+
+### 验证
+
+- Tauri host + Chromium 手机页 ICE 连接成功
+- host 候选由 `xxx.local` 变为 `192.168.2.43`
+- 1.3.1 NSIS 构建成功
+
 ## 1.3.0 - 2026-10-24
 
 新增跨网络加密中继（实验性）。

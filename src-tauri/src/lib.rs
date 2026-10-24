@@ -50,8 +50,31 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
     current
 }
 
+#[cfg(windows)]
+fn configure_webrtc_webview2() {
+    // WebView2 默认用 mDNS 隐藏 host ICE 候选（xxx.local）。
+    // iPhone/Safari 以及部分路由器无法解析 mDNS，房间会一直停在 connecting。
+    // 显式暴露局域网 IP 候选；仅在专用/域网络的防火墙规则下使用。
+    const FLAG: &str = "--disable-features=WebRtcHideLocalIpsWithMdns";
+    let current = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+    if current.contains("WebRtcHideLocalIpsWithMdns") {
+        return;
+    }
+    let next = if current.trim().is_empty() {
+        FLAG.to_string()
+    } else {
+        format!("{current} {FLAG}")
+    };
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", next);
+}
+
+#[cfg(not(windows))]
+fn configure_webrtc_webview2() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    configure_webrtc_webview2();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![

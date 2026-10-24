@@ -149,6 +149,11 @@ async fn handle_message(
                 return;
             }
 
+            *room_id = Some(code.clone());
+            *role = Some(Role::Client);
+            // 必须先让客户端收到 room_joined，再通知 host；
+            // 否则 host 可能在客户端 ready 之前立即发 offer，造成浏览器端丢失。
+            send_json(tx, json!({ "type": "room_joined", "roomId": code }));
             if let Some(host) = host_tx {
                 send_json(&host, json!({
                     "type": "peer_joined",
@@ -156,9 +161,6 @@ async fn handle_message(
                     "deviceName": device_name
                 }));
             }
-            *room_id = Some(code.clone());
-            *role = Some(Role::Client);
-            send_json(tx, json!({ "type": "room_joined", "roomId": code }));
             println!("[signal] 加入房间: {code}");
         }
 

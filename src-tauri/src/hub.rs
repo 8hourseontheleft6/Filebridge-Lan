@@ -34,7 +34,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-const HUB_VERSION: &str = "1.3.0";
+const HUB_VERSION: &str = "1.3.1";
 
 // GUI 应用从资源管理器启动时 stdout 可能不可用；日志失败不能中断传输。
 macro_rules! hub_log {

@@ -19,6 +19,7 @@
 - ✅ **1.2.0 开源发布**：更名 Filebridge-Lan；MIT License、SECURITY/CONTRIBUTING/第三方声明、Windows CI；新应用标识/二进制/数据目录与旧数据迁移；`npm audit` 0 漏洞。
 - ✅ **1.2.1 防火墙修复**：定位 `filebridge-lan.exe` Block/Private 规则导致手机无法访问；安装器 UAC hook + 手动修复脚本 + README 排障；Release workflow 自动附 SHA-256。
 - ✅ **1.3.0 跨网络 MVP**：独立加密 Relay（传输码/TTL/配额/限流）、AES-GCM 分片、发送/接收 UI、`#receive=code&key=` 链接/二维码；浏览器 E2E 校验哈希；HTTPS 部署文档。
+- ✅ **1.3.1 WebRTC P2P 修复**：WebView2 mDNS 候选隐藏导致 iPhone/Safari 无法解析；改为局域网 IP 候选；防火墙 TCP→Any；信令 `room_joined` 顺序修正。
 - ⏳ **未完成**：上传断点续传、token/鉴权、正式浏览器 E2E；代码签名/MSI 待按需补充。
 - 性能测试必须用 `--release`：debug 构建的 SHA-256 未优化，1 GB 上传约 38 s（曾误判为 Hub 吞吐问题）。
 - 详细 API 与限制见 [HTTP-HUB.md](./HTTP-HUB.md)。
