@@ -145,6 +145,7 @@ export function HttpTransfer() {
   const [codeInput, setCodeInput] = useState('');
   const [codeError, setCodeError] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const [rotating, setRotating] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -707,9 +708,19 @@ export function HttpTransfer() {
         phoneUrl ? (
           <JoinQr
             url={phoneUrl}
-            displayUrl={phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
+            displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
             title="手机扫码打开"
             subtitle="同一 WiFi；配对码已自动带入，无需手动输入"
+            actions={(
+              <button
+                type="button"
+                className="btn btn-small"
+                aria-pressed={showCode}
+                onClick={() => setShowCode((value) => !value)}
+              >
+                {showCode ? '隐藏 code' : '显示 code'}
+              </button>
+            )}
           />
         ) : (
           <p className="hint">

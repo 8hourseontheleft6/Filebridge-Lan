@@ -25,7 +25,7 @@ export default function App() {
         <main className="main relay-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.4.0 · 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.4.1 · 实验性中继</footer>
       </div>
     );
   }
@@ -77,7 +77,7 @@ export default function App() {
         {activeMode === 'lan' ? <HttpTransfer /> : <RelayTransfer />}
       </main>
 
-      <footer className="app-footer">Filebridge-Lan v1.4.0 · 局域网直传 / 实验性中继</footer>
+      <footer className="app-footer">Filebridge-Lan v1.4.1 · 局域网直传 / 实验性中继</footer>
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   );
