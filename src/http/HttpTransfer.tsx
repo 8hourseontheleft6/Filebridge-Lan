@@ -7,13 +7,7 @@ import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
 import { ConnectPanel } from './ConnectPanel';
-import { ConnectApproval } from './ConnectApproval';
 import { NearbyComputers, type NearbyPeer } from './NearbyComputers';
-import {
-  decideConnectRequest,
-  listConnectRequests,
-  type PendingConnectRequest,
-} from './connect';
 
 const SESSION_STORAGE_KEY = 'filebridge_session_code';
 const TOKEN_STORAGE_KEY = 'filebridge_session_token';
@@ -159,14 +153,14 @@ export function HttpTransfer() {
   const [sessionReady, setSessionReady] = useState(false);
   const [showCode, setShowCode] = useState(false);
   const [rotating, setRotating] = useState(false);
-  const [pendingConnectRequests, setPendingConnectRequests] = useState<PendingConnectRequest[]>([]);
-  const [approvalBusy, setApprovalBusy] = useState(false);
   const [peerFrame, setPeerFrame] = useState<NearbyPeer | null>(null);
-  const autoConnect = new URLSearchParams(window.location.search).get('connect') === '1';
-  const localHost = desktop
-    || window.location.hostname === 'localhost'
+  const [peerState, setPeerState] = useState<'waiting' | 'connected'>('waiting');
+  const peerFrameRef = useRef<HTMLIFrameElement>(null);
+  const localBrowser = window.location.hostname === 'localhost'
     || window.location.hostname === '127.0.0.1'
     || window.location.hostname === '::1';
+  const autoConnect = new URLSearchParams(window.location.search).get('connect') === '1'
+    || (!desktop && !localBrowser);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -225,44 +219,28 @@ export function HttpTransfer() {
   }, []);
 
   useEffect(() => {
-    if (!localHost) return;
-    let alive = true;
-    const load = async () => {
-      try {
-        const requests = await listConnectRequests(API_BASE);
-        if (alive) setPendingConnectRequests(requests);
-      } catch {
-        // 非主机页面或请求尚未准备好时保持安静
+    if (!token || window.parent === window) return;
+    try {
+      window.parent.postMessage({ type: 'filebridge-peer-connected' }, '*');
+    } catch {
+      // 跨窗口通知失败不影响传输
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!peerFrame) return;
+    setPeerState('waiting');
+    const expectedOrigin = new URL(peerFrame.url).origin;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== peerFrameRef.current?.contentWindow) return;
+      if (event.origin !== expectedOrigin) return;
+      if (event.data && event.data.type === 'filebridge-peer-connected') {
+        setPeerState('connected');
       }
     };
-    void load();
-    const timer = window.setInterval(() => { void load(); }, 2000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, [localHost]);
-
-  const approveConnect = useCallback(async (approve: boolean) => {
-    const request = pendingConnectRequests[0];
-    if (!request || approvalBusy) return;
-    setApprovalBusy(true);
-    try {
-      await decideConnectRequest(request.id, approve);
-      setPendingConnectRequests((items) => items.filter((item) => item.id !== request.id));
-      setToast({
-        text: approve ? `已允许 ${request.name} 连接` : `已拒绝 ${request.name} 的连接`,
-        kind: approve ? 'success' : 'info',
-      });
-    } catch (reason) {
-      setToast({
-        text: reason instanceof Error ? reason.message : '处理连接请求失败',
-        kind: 'error',
-      });
-    } finally {
-      setApprovalBusy(false);
-    }
-  }, [approvalBusy, pendingConnectRequests]);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [peerFrame]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -933,14 +911,6 @@ export function HttpTransfer() {
     </article>
   );
 
-  const approvalDialog = localHost && pendingConnectRequests.length > 0 ? (
-    <ConnectApproval
-      request={pendingConnectRequests[0]}
-      busy={approvalBusy}
-      onDecision={(approve) => { void approveConnect(approve); }}
-    />
-  ) : null;
-
   if (!sessionReady) {
     return (
       <div className="lan-dashboard">
@@ -982,7 +952,6 @@ export function HttpTransfer() {
           </article>
         </div>
         {guideCard}
-        {approvalDialog}
       </div>
     );
   }
@@ -1214,7 +1183,11 @@ export function HttpTransfer() {
           {pairingDetails}
         </article>
 
-        <NearbyComputers onConnect={setPeerFrame} />
+        <NearbyComputers
+          onConnect={setPeerFrame}
+          activePeerId={peerFrame?.id}
+          activeState={peerState}
+        />
 
         <article className="card progress-card">
           <div className="card-head">
@@ -1322,7 +1295,6 @@ export function HttpTransfer() {
       </div>
 
       {guideCard}
-      {approvalDialog}
 
       {peerFrame && (
         <div className="peer-frame-overlay">
@@ -1336,6 +1308,7 @@ export function HttpTransfer() {
             </button>
           </header>
           <iframe
+            ref={peerFrameRef}
             className="peer-frame"
             src={`${peerFrame.url}?connect=1`}
             title={`连接 ${peerFrame.name}`}

@@ -1791,6 +1791,22 @@ input {
   font-size: 0.68rem;
 }
 
+.nearby-state {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #4976b8;
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nearby-state.connected {
+  background: #e8f7ed;
+  color: #2e7d4f;
+}
+
 .peer-frame-overlay {
   position: fixed;
   inset: 0;

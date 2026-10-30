@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { HttpTransfer } from './http/HttpTransfer';
+import { HostApprovalGate } from './http/HostApprovalGate';
 import { RelayTransfer } from './relay/RelayTransfer';
 import { SettingsPanel } from './components/SettingsPanel';
 import { isRelayHosted, parseRelayHash } from './relay/api';
@@ -124,6 +125,7 @@ export default function App() {
       </div>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      <HostApprovalGate />
     </div>
   );
 }

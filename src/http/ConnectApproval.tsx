@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { PendingConnectRequest } from './connect';
 
 interface ConnectApprovalProps {
@@ -15,6 +15,12 @@ export function ConnectApproval({ request, busy, onDecision }: ConnectApprovalPr
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1000))
   );
+  const cardRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const buttons = cardRef.current?.querySelectorAll<HTMLButtonElement>('button');
+    buttons?.[0]?.focus();
+  }, []);
 
   useEffect(() => {
     setRemaining(Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1000)));
@@ -24,13 +30,31 @@ export function ConnectApproval({ request, busy, onDecision }: ConnectApprovalPr
     return () => window.clearInterval(timer);
   }, [request.expiresAt]);
 
+  function trapFocus(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Tab') return;
+    const buttons = [...(cardRef.current?.querySelectorAll<HTMLButtonElement>('button') || [])]
+      .filter((button) => !button.disabled);
+    if (buttons.length === 0) return;
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   return (
     <div className="approval-backdrop" role="presentation">
       <section
+        ref={cardRef}
         className="approval-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="approval-title"
+        onKeyDown={trapFocus}
       >
         <div className="approval-mark" aria-hidden>↗</div>
         <p className="approval-eyebrow">连接请求</p>

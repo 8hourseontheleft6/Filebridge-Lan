@@ -109,11 +109,15 @@ async function pair(port, code, origin) {
 }
 
 async function createConnect(port, name = '测试电脑') {
-  const response = await fetch(`http://127.0.0.1:${port}/api/connect/requests`, {
+  return createConnectAt(`http://127.0.0.1:${port}`, 'http://tauri.localhost', name);
+}
+
+async function createConnectAt(base, origin, name = '测试电脑') {
+  const response = await fetch(`${base}/api/connect/requests`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Origin: 'http://tauri.localhost',
+      Origin: origin,
     },
     body: JSON.stringify({ name }),
   });
@@ -225,6 +229,21 @@ async function main() {
     assert.equal(list.status, 200);
     console.log('PASS token rejection/acceptance');
 
+    // 并发 pending：从 LAN 来源同时创建 10 个请求，最多 3 个进入 pending
+    const concurrent = await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        createConnectAt(lanOrigin, lanOrigin, `CONCURRENT-${index}`)
+      )
+    );
+    const concurrentAccepted = concurrent.filter((item) => item.response.status === 201);
+    const concurrentRejected = concurrent.filter((item) => item.response.status === 429);
+    assert.equal(concurrentAccepted.length, 3);
+    assert.equal(concurrentRejected.length, 7);
+    for (const item of concurrentAccepted) {
+      assert.equal((await decideConnect(port, item.body.requestId, false)).status, 200);
+    }
+    console.log('PASS concurrent pending cap');
+
     // 连接请求：创建、主机查看、错误 secret、批准、重复批准
     const connectCreated = await createConnect(port, 'DESKTOP-GUEST');
     assert.equal(connectCreated.response.status, 201);
@@ -253,6 +272,8 @@ async function main() {
     const approved = await connectStatus(port, connectRequest.requestId, connectRequest.requestSecret);
     assert.equal(approved.body.status, 'approved');
     assert.ok(approved.body.token);
+    const approvedAgain = await connectStatus(port, connectRequest.requestId, connectRequest.requestSecret);
+    assert.equal(approvedAgain.body.token, approved.body.token);
     const connectTokenList = await fetch(`http://127.0.0.1:${port}/api/files`, {
       headers: { Authorization: `Bearer ${approved.body.token}` },
     });

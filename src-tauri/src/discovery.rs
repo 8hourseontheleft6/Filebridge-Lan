@@ -215,4 +215,10 @@ mod tests {
         assert_eq!(sanitize_name("\u{0000}  "), "Filebridge-Lan");
         assert!(sanitize_name(&"x".repeat(100)).len() <= 40);
     }
+
+    #[test]
+    fn peer_url_handles_ipv4_and_ipv6() {
+        assert_eq!(peer_url("192.168.1.8", 42080), "http://192.168.1.8:42080/");
+        assert_eq!(peer_url("fe80::1", 42080), "http://[fe80::1]:42080/");
+    }
 }

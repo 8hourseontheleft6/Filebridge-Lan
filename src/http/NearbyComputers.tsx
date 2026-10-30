@@ -13,9 +13,11 @@ export interface NearbyPeer {
 
 interface NearbyComputersProps {
   onConnect: (peer: NearbyPeer) => void;
+  activePeerId?: string | null;
+  activeState?: 'waiting' | 'connected';
 }
 
-export function NearbyComputers({ onConnect }: NearbyComputersProps) {
+export function NearbyComputers({ onConnect, activePeerId = null, activeState = 'waiting' }: NearbyComputersProps) {
   const desktop = isTauriHost();
   const [peers, setPeers] = useState<NearbyPeer[]>([]);
   const [scanning, setScanning] = useState(true);
@@ -82,9 +84,15 @@ export function NearbyComputers({ onConnect }: NearbyComputersProps) {
                 <strong>{peer.name}</strong>
                 <span>{peer.ip}:{peer.port} · v{peer.version}</span>
               </div>
-              <button type="button" className="btn btn-primary btn-small" onClick={() => onConnect(peer)}>
-                连接
-              </button>
+              {activePeerId === peer.id ? (
+                <span className={`nearby-state ${activeState}`}>
+                  {activeState === 'connected' ? '已连接' : '等待确认…'}
+                </span>
+              ) : (
+                <button type="button" className="btn btn-primary btn-small" onClick={() => onConnect(peer)}>
+                  连接
+                </button>
+              )}
             </div>
           ))}
         </div>

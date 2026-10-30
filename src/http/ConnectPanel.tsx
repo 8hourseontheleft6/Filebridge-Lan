@@ -46,7 +46,7 @@ export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelP
         }
         if (status.status === 'expired') {
           setPhase('expired');
-          setError('主机未确认，请求已过期');
+          setError('主机未确认或请求已过期');
           stoppedRef.current = true;
         }
       } catch (reason) {
