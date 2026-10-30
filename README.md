@@ -23,14 +23,14 @@
 
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.4.2_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.4.3_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.4.2_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.4.3_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
 - 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080
@@ -38,7 +38,7 @@ npm run tauri build
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42080）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.4.2.md](docs/RELEASE-1.4.2.md)
+版本说明：[docs/RELEASE-1.4.3.md](docs/RELEASE-1.4.3.md)
 
 > 从旧版本升级：首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 

@@ -33,7 +33,7 @@ use tokio_util::io::ReaderStream;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-const HUB_VERSION: &str = "1.4.2";
+const HUB_VERSION: &str = "1.4.3";
 
 // GUI 应用从资源管理器启动时 stdout 可能不可用；日志失败不能中断传输。
 macro_rules! hub_log {

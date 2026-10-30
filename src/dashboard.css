@@ -244,12 +244,13 @@ input {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(270px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "files files"
-    "connection progress";
+    "connection"
+    "files"
+    "progress";
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .dashboard-grid.single {
@@ -1196,8 +1197,8 @@ input {
   .dashboard-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "files"
       "connection"
+      "files"
       "progress";
   }
 

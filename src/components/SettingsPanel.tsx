@@ -158,7 +158,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             <span className="about-mark">F</span>
             <div>
               <strong>Filebridge-Lan</strong>
-              <span>版本 1.4.2 · 局域网文件传输</span>
+              <span>版本 1.4.3 · 局域网文件传输</span>
             </div>
           </div>
           <p className="about-intro">
