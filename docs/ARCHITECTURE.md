@@ -1,6 +1,6 @@
 # Filebridge-Lan 架构
 
-> 1.4.4 现状：局域网 HTTP Hub + 配对码/bearer token；跨网络加密中继。WebRTC 房间已移除。
+> 1.5.0 现状：局域网 HTTP Hub + 配对码/bearer token；跨网络加密中继。WebRTC 房间已移除。
 
 ## 局域网
 
@@ -74,3 +74,12 @@ Bridge Relay（:43000，HTTPS 反向代理）
 - 不要把 42080 暴露到公网
 - 跨网络必须使用 HTTPS Relay；中继仍是实验性
 - 原生下载通过 Tauri 命令直接读 Hub 数据目录，不经过 HTTP token
+
+## 1.5.0 电脑互联
+
+- Rust 桌面 Hub 通过 UDP 42081 广播发现信息（设备名、稳定实例 ID、Hub 端口、版本）
+- 前端“附近电脑”卡片轮询 Tauri `discovery_peers`，点击后在应用内嵌入目标 Hub 页面
+- 浏览器路径直接打开目标 Hub 地址，通过“请求主机允许”发起同一连接请求
+- Node/Rust 共用连接请求协议：创建请求、查询状态、主机批准/拒绝、签发 token
+- 主机确认只在 loopback 接口读取和处理
+- 发现失败、无 UDP、AP 隔离时保留 IP/二维码/手动配对码回退

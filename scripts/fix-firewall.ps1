@@ -23,6 +23,8 @@ foreach ($filter in $filters) {
 
 Get-NetFirewallRule -DisplayName 'Filebridge-Lan' -ErrorAction SilentlyContinue |
     Remove-NetFirewallRule -ErrorAction SilentlyContinue
+Get-NetFirewallRule -DisplayName 'Filebridge-Lan Discovery' -ErrorAction SilentlyContinue |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
 
 New-NetFirewallRule `
     -DisplayName 'Filebridge-Lan' `
@@ -34,5 +36,15 @@ New-NetFirewallRule `
     -LocalPort 42080 `
     -Profile Private,Domain | Out-Null
 
-Write-Host 'Done: Filebridge-Lan inbound TCP 42080 is allowed on Private/Domain networks.'
+New-NetFirewallRule `
+    -DisplayName 'Filebridge-Lan Discovery' `
+    -Description 'Filebridge-Lan LAN peer discovery' `
+    -Direction Inbound `
+    -Program $exe `
+    -Action Allow `
+    -Protocol UDP `
+    -LocalPort 42081 `
+    -Profile Private,Domain | Out-Null
+
+Write-Host 'Done: Filebridge-Lan inbound TCP 42080 and UDP 42081 are allowed on Private/Domain networks.'
 Write-Host 'If the phone still cannot connect, set the Wi-Fi network to Private and disable AP isolation.'

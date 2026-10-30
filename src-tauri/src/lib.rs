@@ -1,3 +1,4 @@
+pub mod discovery;
 pub mod downloads;
 pub mod hub;
 
@@ -85,11 +86,17 @@ pub fn run() {
             downloads::save_download,
             downloads::cancel_download,
             downloads::open_path,
+            discovery::discovery_peers,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = resolve_data_dir(&handle);
             let dist_dir = resolve_dist(&handle);
+            let port: u16 = std::env::var("FILEBRIDGE_LAN_HUB_PORT")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(42080);
+            app.manage(discovery::DiscoveryState::start(port, data_dir.clone()));
             let default_download_dir = handle
                 .path()
                 .download_dir()
@@ -100,11 +107,6 @@ pub fn run() {
             ));
 
             tauri::async_runtime::spawn(async move {
-                let port: u16 = std::env::var("FILEBRIDGE_LAN_HUB_PORT")
-                    .ok()
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(42080);
-
                 if let Err(error) = hub::serve(port, data_dir, dist_dir).await {
                     eprintln!("[hub] 启动失败（端口 {port} 可能已被占用）: {error}");
                 }

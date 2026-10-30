@@ -247,6 +247,7 @@ input {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "connection"
+    "nearby"
     "files"
     "progress";
   gap: 16px;
@@ -262,8 +263,16 @@ input {
 }
 
 .files-card { grid-area: files; }
+.nearby-card { grid-area: nearby; }
 .connection-card { grid-area: connection; }
 .progress-card { grid-area: progress; }
+
+.lan-dashboard:not(.has-nearby) .dashboard-grid {
+  grid-template-areas:
+    "connection"
+    "files"
+    "progress";
+}
 
 .card {
   min-width: 0;
@@ -1194,6 +1203,7 @@ input {
     grid-template-columns: 1fr;
     grid-template-areas:
       "connection"
+      "nearby"
       "files"
       "progress";
   }
@@ -1541,4 +1551,290 @@ input {
 
 .about-card a:hover {
   text-decoration: underline;
+}
+/* Connect approval */
+.connect-request-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 11px 12px;
+  border: 1px solid #dbe9fb;
+  border-radius: 10px;
+  background: #f5faff;
+}
+
+.connect-request-panel.waiting {
+  border-color: #bcd8fa;
+  background: #eef6ff;
+}
+
+.connect-request-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #e2efff;
+  color: #2f74d0;
+  font-size: 1rem;
+}
+
+.connect-request-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.connect-request-copy h3 {
+  margin: 0;
+  color: #2b3c54;
+  font-size: 0.78rem;
+}
+
+.connect-request-copy p {
+  margin: 3px 0 0;
+  color: #718096;
+  font-size: 0.71rem;
+  line-height: 1.5;
+}
+
+.connect-request-copy strong {
+  color: #3c5f8d;
+}
+
+.connect-countdown {
+  display: inline-block;
+  margin-left: 5px;
+  color: #3f7bc4;
+  white-space: nowrap;
+}
+
+.connect-error {
+  color: #c7383d !important;
+}
+
+.connect-action {
+  flex: 0 0 auto;
+}
+
+.approval-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(25, 37, 56, 0.34);
+  backdrop-filter: blur(4px);
+}
+
+.approval-card {
+  width: min(380px, 100%);
+  padding: 22px;
+  border: 1px solid #e5ebf3;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(20, 35, 60, 0.25);
+  text-align: center;
+}
+
+.approval-mark {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 10px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #eaf3ff;
+  color: #2f74d0;
+  font-size: 1.25rem;
+}
+
+.approval-eyebrow {
+  margin: 0 0 4px;
+  color: #8a96a8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.approval-card h2 {
+  margin: 0;
+  color: #253246;
+  font-size: 1.08rem;
+}
+
+.approval-device {
+  margin: 12px 0 4px;
+  color: #2f5f9c;
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.approval-meta {
+  margin: 0;
+  color: #8490a2;
+  font-size: 0.7rem;
+}
+
+.approval-hint {
+  margin: 12px 0 0;
+  color: #718096;
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.approval-actions .btn {
+  min-width: 96px;
+}
+
+@media (max-width: 560px) {
+  .connect-request-panel {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .connect-action {
+    width: 100%;
+  }
+
+  .approval-card {
+    padding: 18px;
+  }
+}
+/* Nearby discovery */
+.nearby-card {
+  min-height: 0;
+}
+
+.nearby-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 64px;
+  padding: 10px;
+  border: 1px dashed #dce7f5;
+  border-radius: 9px;
+  background: #fbfdff;
+  color: #7f8b9d;
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+.nearby-empty .loading-dot {
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 4px #eaf2ff;
+}
+
+.nearby-error {
+  border-color: #f0d7d7;
+  background: #fffafa;
+  color: #a65b5b;
+}
+
+.nearby-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nearby-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 4px;
+  border-bottom: 1px solid #f0f3f8;
+}
+
+.nearby-row:last-child {
+  border-bottom: 0;
+}
+
+.nearby-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #edf4ff;
+  color: #4b86d8;
+}
+
+.nearby-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nearby-main strong {
+  color: #2f3f56;
+  font-size: 0.78rem;
+}
+
+.nearby-main span {
+  color: #8b96a8;
+  font-size: 0.68rem;
+}
+
+.peer-frame-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  background: #f3f5f9;
+}
+
+.peer-frame-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e3e9f2;
+  background: #fff;
+}
+
+.peer-frame-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.peer-frame-head strong {
+  color: #2f3f56;
+  font-size: 0.82rem;
+}
+
+.peer-frame-head span {
+  color: #8b96a8;
+  font-size: 0.68rem;
+}
+
+.peer-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #f3f5f9;
+}
+
+@media (max-width: 560px) {
+  .peer-frame-head {
+    padding: 9px 12px;
+  }
 }

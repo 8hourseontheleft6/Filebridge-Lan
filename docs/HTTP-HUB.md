@@ -129,3 +129,33 @@ npm run test:hub
 ```
 
 覆盖：配对码、Host/Origin、配对 token、401、上传/SHA-256、下载、Range、空文件、文件名清洗、CORS、删除、轮换、配对限流。
+
+## 8. 电脑互联（1.5.0）
+
+### 连接请求 API
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| POST | `/api/connect/requests` | Host/Origin | 发起连接；body `{ "name": "Windows 电脑" }`，返回 `requestId/requestSecret/expiresAt` |
+| GET | `/api/connect/requests` | 仅 loopback | 主机读取待确认请求；不返回 secret/token |
+| GET | `/api/connect/requests/:id` | `X-Connect-Secret` | 发起方查询 pending/approved/denied/expired；批准后返回 token |
+| POST | `/api/connect/requests/:id/decision` | 仅 loopback | body `{ "approve": true/false }`；重复决策返回 409 |
+
+请求默认 **60 秒**过期，只能批准一次；pending 上限 8；创建请求按 IP 10 次/分钟 + 全局 120 次/分钟限流。请求 secret 和 token 不写入日志。
+
+### 局域网发现
+
+Rust 桌面 Hub 使用 **UDP 42081** 广播：
+
+```json
+{"app":"filebridge-lan","version":"1.5.0","id":"稳定实例ID","name":"DESKTOP-A","port":42080}
+```
+
+广播不包含配对码、token、文件名、用户名或路径。发现失败不影响扫码、手动配对和直接 IP 访问。
+
+### 防火墙
+
+- TCP 42080：Private/Domain
+- UDP 42081：Private/Domain
+- 程序级规则；不允许 Public/Any
+- 安装器/修复脚本已更新，但真实 UAC/防火墙验证仍需人工完成

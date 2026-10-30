@@ -13,6 +13,7 @@
 - **手机免安装**：扫码打开网页即可上传/下载
 - **HTTP 直传**：流式上传、SHA-256、Range 下载、SSE 进度
 - **两种模式**：局域网直传默认选中；跨网络中继（实验）单独入口
+- **电脑互联**：局域网自动发现附近电脑；主机确认后连接。另一台电脑也可直接用浏览器发起请求，无需安装
 - **文件管理**：多选、全选、批量保存/下载、批量删除；文件列表限高并带滚动条
 - **传输仪表盘**：上传/下载当前速度、峰值、累计传输量和实时曲线
 - **配对码 + token**：6 位码只用于配对；配对后签发 12 小时有效的随机 token；配对码放在手动连接/详情折叠区，二维码链接可一键显示/隐藏 code
@@ -23,22 +24,22 @@
 
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.4.4_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.5.0_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.4.4_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.5.0_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
-- 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080
+- 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080 + UDP 42081
 - 安装包未签名，Windows SmartScreen 可能提示“未知发布者”
-- 首次运行如防火墙弹窗，请允许专用网络（TCP 42080）
+- 首次运行如防火墙弹窗，请允许专用网络（TCP 42080 + UDP 42081）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.4.4.md](docs/RELEASE-1.4.4.md)
+版本说明：[docs/RELEASE-1.5.0.md](docs/RELEASE-1.5.0.md)
 
 > 从旧版本升级：首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
@@ -92,6 +93,9 @@ Get-NetFirewallRule -DisplayName 'filebridge-lan.exe' | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName 'Filebridge-Lan' -Direction Inbound `
   -Program "$env:LOCALAPPDATA\Filebridge-Lan\filebridge-lan.exe" `
   -Action Allow -Protocol TCP -LocalPort 42080 -Profile Private,Domain
+New-NetFirewallRule -DisplayName 'Filebridge-Lan Discovery' -Direction Inbound `
+  -Program "$env:LOCALAPPDATA\Filebridge-Lan\filebridge-lan.exe" `
+  -Action Allow -Protocol UDP -LocalPort 42081 -Profile Private,Domain
 ```
 
 其他检查：

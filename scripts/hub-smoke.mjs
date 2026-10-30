@@ -108,6 +108,38 @@ async function pair(port, code, origin) {
   });
 }
 
+async function createConnect(port, name = '测试电脑') {
+  const response = await fetch(`http://127.0.0.1:${port}/api/connect/requests`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: 'http://tauri.localhost',
+    },
+    body: JSON.stringify({ name }),
+  });
+  return { response, body: response.ok ? await response.json() : null };
+}
+
+async function connectStatus(port, id, secret) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/connect/requests/${id}`, {
+    headers: { 'X-Connect-Secret': secret, Origin: 'http://tauri.localhost' },
+  });
+  return { response, body: response.ok ? await response.json() : null };
+}
+
+async function decideConnect(port, id, approve) {
+  return fetch(`http://127.0.0.1:${port}/api/connect/requests/${id}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approve }),
+  });
+}
+
+async function listConnect(port) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/connect/requests`);
+  return { response, body: response.ok ? await response.json() : null };
+}
+
 async function main() {
   const port = await getFreePort();
   const dataDir = path.join(os.tmpdir(), `filebridge-lan-hub-smoke-${process.pid}-${Date.now()}`);
@@ -118,6 +150,8 @@ async function main() {
       ...process.env,
       FILEBRIDGE_LAN_HUB_PORT: String(port),
       FILEBRIDGE_LAN_HUB_DATA: dataDir,
+      FILEBRIDGE_CONNECT_TTL_MS: '800',
+      FILEBRIDGE_CONNECT_MAX_PENDING: '3',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -190,6 +224,85 @@ async function main() {
     const list = await fetch(`http://127.0.0.1:${port}/api/files`, { headers: filesAuth });
     assert.equal(list.status, 200);
     console.log('PASS token rejection/acceptance');
+
+    // 连接请求：创建、主机查看、错误 secret、批准、重复批准
+    const connectCreated = await createConnect(port, 'DESKTOP-GUEST');
+    assert.equal(connectCreated.response.status, 201);
+    const connectRequest = connectCreated.body;
+    assert.match(connectRequest.requestId, /^[0-9a-f-]{36}$/i);
+    assert.ok(connectRequest.requestSecret.length >= 40);
+    assert.ok(connectRequest.expiresAt > Date.now());
+
+    const pending = await listConnect(port);
+    assert.equal(pending.response.status, 200);
+    const pendingItem = pending.body.requests.find((item) => item.id === connectRequest.requestId);
+    assert.equal(pendingItem.name, 'DESKTOP-GUEST');
+    assert.equal(pendingItem.ip, '127.0.0.1');
+    assert.equal(pendingItem.secret, undefined);
+    assert.equal(pendingItem.requestSecret, undefined);
+
+    const wrongSecret = await connectStatus(port, connectRequest.requestId, 'wrong-secret');
+    assert.equal(wrongSecret.response.status, 404);
+    const waiting = await connectStatus(port, connectRequest.requestId, connectRequest.requestSecret);
+    assert.equal(waiting.body.status, 'pending');
+
+    const approve = await decideConnect(port, connectRequest.requestId, true);
+    assert.equal(approve.status, 200);
+    const repeatApprove = await decideConnect(port, connectRequest.requestId, true);
+    assert.equal(repeatApprove.status, 409);
+    const approved = await connectStatus(port, connectRequest.requestId, connectRequest.requestSecret);
+    assert.equal(approved.body.status, 'approved');
+    assert.ok(approved.body.token);
+    const connectTokenList = await fetch(`http://127.0.0.1:${port}/api/files`, {
+      headers: { Authorization: `Bearer ${approved.body.token}` },
+    });
+    assert.equal(connectTokenList.status, 200);
+    assert.ok(!output.includes(connectRequest.requestSecret));
+    assert.ok(!output.includes(approved.body.token));
+    console.log('PASS connect request approve lifecycle');
+
+    const deniedCreated = await createConnect(port, 'DENIED-DESKTOP');
+    const denied = await decideConnect(port, deniedCreated.body.requestId, false);
+    assert.equal(denied.status, 200);
+    const deniedStatus = await connectStatus(
+      port,
+      deniedCreated.body.requestId,
+      deniedCreated.body.requestSecret
+    );
+    assert.equal(deniedStatus.body.status, 'denied');
+    assert.equal(deniedStatus.body.token, undefined);
+    assert.equal((await decideConnect(port, deniedCreated.body.requestId, true)).status, 409);
+    console.log('PASS connect request denial');
+
+    const expiring = await createConnect(port, 'EXPIRED-DESKTOP');
+    await sleep(950);
+    const expiredStatus = await connectStatus(port, expiring.body.requestId, expiring.body.requestSecret);
+    assert.equal(expiredStatus.body.status, 'expired');
+    assert.equal((await decideConnect(port, expiring.body.requestId, true)).status, 410);
+    console.log('PASS connect request expiry');
+
+    const capRequests = [];
+    for (let index = 0; index < 3; index += 1) {
+      const item = await createConnect(port, `PENDING-${index}`);
+      assert.equal(item.response.status, 201);
+      capRequests.push(item.body);
+    }
+    const overCap = await createConnect(port, 'OVER-CAP');
+    assert.equal(overCap.response.status, 429);
+    for (const item of capRequests) {
+      assert.equal((await decideConnect(port, item.requestId, false)).status, 200);
+    }
+    console.log('PASS connect pending cap');
+
+    const rateStatuses = [];
+    for (let index = 0; index < 8; index += 1) {
+      const item = await createConnect(port, `RATE-${index}`);
+      rateStatuses.push(item.response.status);
+      if (item.body) await decideConnect(port, item.body.requestId, false);
+    }
+    assert.ok(rateStatuses.includes(201));
+    assert.equal(rateStatuses.at(-1), 429);
+    console.log('PASS connect rate limit');
 
     // 2 MB 随机文件
     const payload = crypto.randomBytes(2 * 1024 * 1024);

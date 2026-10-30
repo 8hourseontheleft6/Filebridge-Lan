@@ -33,7 +33,7 @@ use tokio_util::io::ReaderStream;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-const HUB_VERSION: &str = "1.4.4";
+const HUB_VERSION: &str = "1.5.0";
 
 // GUI 应用从资源管理器启动时 stdout 可能不可用；日志失败不能中断传输。
 macro_rules! hub_log {
@@ -87,6 +87,22 @@ struct HubInner {
     tokens: RwLock<Vec<TokenEntry>>,
     pair_failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
     pair_global: Mutex<(u32, Instant)>,
+    connect_requests: Mutex<HashMap<String, ConnectRequest>>,
+    connect_failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
+    connect_global: Mutex<(u32, Instant)>,
+}
+
+struct ConnectRequest {
+    id: String,
+    secret: String,
+    name: String,
+    ip: String,
+    created_at_ms: u64,
+    expires_at: Instant,
+    expires_at_ms: u64,
+    status: String,
+    token: Option<String>,
+    token_expires_at: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -210,6 +226,9 @@ pub async fn new(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> std::io::Re
             tokens: RwLock::new(Vec::new()),
             pair_failures: Mutex::new(HashMap::new()),
             pair_global: Mutex::new((0, Instant::now())),
+            connect_requests: Mutex::new(HashMap::new()),
+            connect_failures: Mutex::new(HashMap::new()),
+            connect_global: Mutex::new((0, Instant::now())),
         }),
     })
 }
@@ -231,6 +250,9 @@ pub fn router(state: HubState) -> Router {
         .route("/session", get(get_session))
         .route("/session/rotate", post(rotate_session))
         .route("/pair", post(pair))
+        .route("/connect/requests", get(list_connect_requests).post(create_connect_request))
+        .route("/connect/requests/{id}", get(connect_request_status))
+        .route("/connect/requests/{id}/decision", post(decide_connect_request))
         .merge(protected)
         .fallback(api_not_found);
 
@@ -382,7 +404,7 @@ async fn security_guard(
             response.headers_mut().insert(
                 header::ACCESS_CONTROL_ALLOW_HEADERS,
                 HeaderValue::from_static(
-                    "Content-Type, Range, Authorization, X-Filebridge-Token",
+                    "Content-Type, Range, Authorization, X-Filebridge-Token, X-Connect-Secret",
                 ),
             );
             response.headers_mut().insert(
@@ -518,6 +540,280 @@ async fn pair(
         .as_millis() as u64;
 
     Ok(Json(PairResponse { token, expires_at: expires_ms }))
+}
+
+#[derive(Deserialize)]
+struct ConnectRequestInput {
+    name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectRequestCreated {
+    request_id: String,
+    request_secret: String,
+    expires_at: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingConnectRequest {
+    id: String,
+    name: String,
+    ip: String,
+    created_at: u64,
+    expires_at: u64,
+}
+
+#[derive(Serialize)]
+struct PendingConnectList {
+    requests: Vec<PendingConnectRequest>,
+}
+
+#[derive(Deserialize)]
+struct ConnectDecision {
+    #[serde(default)]
+    approve: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectStatusResponse {
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<u64>,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn sanitize_connect_name(value: Option<&str>) -> String {
+    let clean: String = value
+        .unwrap_or("")
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(40)
+        .collect();
+    let clean = clean.trim();
+    if clean.is_empty() { "未命名设备".to_string() } else { clean.to_string() }
+}
+
+async fn connect_limited(state: &HubState, ip: IpAddr) -> bool {
+    let now = Instant::now();
+    let mut failures = state.inner.connect_failures.lock().await;
+    let window = failures
+        .entry(ip)
+        .or_insert((0, now + Duration::from_secs(60)));
+    if now >= window.1 {
+        *window = (0, now + Duration::from_secs(60));
+    }
+    if window.0 >= 10 {
+        return true;
+    }
+    window.0 += 1;
+    drop(failures);
+
+    let mut global = state.inner.connect_global.lock().await;
+    if now >= global.1 {
+        *global = (0, now + Duration::from_secs(60));
+    }
+    global.0 += 1;
+    global.0 > 120
+}
+
+async fn clean_connect_requests(state: &HubState) {
+    let now = Instant::now();
+    let mut requests = state.inner.connect_requests.lock().await;
+    requests.retain(|_, request| {
+        request.expires_at + Duration::from_secs(5 * 60) > now
+    });
+}
+
+async fn create_connect_token(state: &HubState) -> (String, u64) {
+    let token = format!(
+        "{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    );
+    let expires_at = Instant::now() + token_ttl();
+    let expires_ms = now_ms() + token_ttl().as_millis() as u64;
+    let mut tokens = state.inner.tokens.write().await;
+    let now = Instant::now();
+    tokens.retain(|entry| entry.expires_at > now);
+    if tokens.len() >= 256 {
+        tokens.remove(0);
+    }
+    tokens.push(TokenEntry { token: token.clone(), expires_at });
+    (token, expires_ms)
+}
+
+async fn create_connect_request(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ConnectRequestInput>,
+) -> ApiResult<Json<ConnectRequestCreated>> {
+    if connect_limited(&state, addr.ip()).await {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "连接请求过多，请稍后再试",
+        ));
+    }
+    clean_connect_requests(&state).await;
+    let mut requests = state.inner.connect_requests.lock().await;
+    let pending = requests
+        .values()
+        .filter(|request| request.status == "pending" && request.expires_at > Instant::now())
+        .count();
+    if pending >= 8 {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "主机待确认请求过多，请稍后再试",
+        ));
+    }
+    let id = Uuid::new_v4().to_string();
+    let secret = format!(
+        "{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    );
+    let now = Instant::now();
+    let expires_at = now + Duration::from_secs(60);
+    let expires_ms = now_ms() + 60_000;
+    let request = ConnectRequest {
+        id: id.clone(),
+        secret: secret.clone(),
+        name: sanitize_connect_name(body.name.as_deref()),
+        ip: addr.ip().to_string(),
+        created_at_ms: now_ms(),
+        expires_at,
+        expires_at_ms: expires_ms,
+        status: "pending".to_string(),
+        token: None,
+        token_expires_at: None,
+    };
+    requests.insert(id.clone(), request);
+    Ok(Json(ConnectRequestCreated {
+        request_id: id,
+        request_secret: secret,
+        expires_at: expires_ms,
+    }))
+}
+
+async fn list_connect_requests(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> ApiResult<Json<PendingConnectList>> {
+    if !addr.ip().is_loopback() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "只有主机本机可以查看连接请求",
+        ));
+    }
+    clean_connect_requests(&state).await;
+    let requests = state.inner.connect_requests.lock().await;
+    let mut list: Vec<PendingConnectRequest> = requests
+        .values()
+        .filter(|request| request.status == "pending" && request.expires_at > Instant::now())
+        .map(|request| PendingConnectRequest {
+            id: request.id.clone(),
+            name: request.name.clone(),
+            ip: request.ip.clone(),
+            created_at: request.created_at_ms,
+            expires_at: request.expires_at_ms,
+        })
+        .collect();
+    list.sort_by_key(|request| request.created_at);
+    Ok(Json(PendingConnectList { requests: list }))
+}
+
+async fn connect_request_status(
+    State(state): State<HubState>,
+    AxumPath(id): AxumPath<String>,
+    headers: HeaderMap,
+) -> ApiResult<Json<ConnectStatusResponse>> {
+    let secret = headers
+        .get("x-connect-secret")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let requests = state.inner.connect_requests.lock().await;
+    let request = requests
+        .get(&id)
+        .filter(|request| constant_time_eq(request.secret.as_str(), secret))
+        .ok_or_else(|| ApiError::not_found("连接请求不存在"))?;
+    if request.status == "approved" {
+        return Ok(Json(ConnectStatusResponse {
+            status: "approved".to_string(),
+            token: request.token.clone(),
+            expires_at: request.token_expires_at,
+        }));
+    }
+    if request.status == "denied" {
+        return Ok(Json(ConnectStatusResponse {
+            status: "denied".to_string(),
+            token: None,
+            expires_at: None,
+        }));
+    }
+    if request.expires_at <= Instant::now() {
+        return Ok(Json(ConnectStatusResponse {
+            status: "expired".to_string(),
+            token: None,
+            expires_at: None,
+        }));
+    }
+    Ok(Json(ConnectStatusResponse {
+        status: "pending".to_string(),
+        token: None,
+        expires_at: Some(request.expires_at_ms),
+    }))
+}
+
+async fn decide_connect_request(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    AxumPath(id): AxumPath<String>,
+    Json(body): Json<ConnectDecision>,
+) -> ApiResult<Json<ConnectStatusResponse>> {
+    if !addr.ip().is_loopback() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "只有主机本机可以确认连接",
+        ));
+    }
+    clean_connect_requests(&state).await;
+    let mut requests = state.inner.connect_requests.lock().await;
+    let request = requests
+        .get_mut(&id)
+        .ok_or_else(|| ApiError::not_found("连接请求不存在"))?;
+    if request.expires_at <= Instant::now() {
+        return Err(ApiError::new(StatusCode::GONE, "连接请求已过期"));
+    }
+    if request.status != "pending" {
+        return Err(ApiError::new(StatusCode::CONFLICT, "连接请求已处理"));
+    }
+    if body.approve {
+        let (token, expires_ms) = create_connect_token(&state).await;
+        request.status = "approved".to_string();
+        request.token = Some(token);
+        request.token_expires_at = Some(expires_ms);
+        return Ok(Json(ConnectStatusResponse {
+            status: "approved".to_string(),
+            token: None,
+            expires_at: Some(request.expires_at_ms),
+        }));
+    }
+    request.status = "denied".to_string();
+    Ok(Json(ConnectStatusResponse {
+        status: "denied".to_string(),
+        token: None,
+        expires_at: None,
+    }))
 }
 
 async fn get_session(

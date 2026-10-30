@@ -35,7 +35,7 @@ const TMP_DIR = path.join(DATA_DIR, 'tmp');
 
 const PORT = Number(process.env.FILEBRIDGE_LAN_HUB_PORT || 42080);
 const HOST = process.env.FILEBRIDGE_LAN_HUB_HOST || '0.0.0.0';
-const VERSION = '1.4.4';
+const VERSION = '1.5.0';
 
 // 6 位码只用于配对；配对成功后签发 256-bit token。
 // 所有状态仅在当前进程内存中，重启即失效。
@@ -44,6 +44,12 @@ const TOKENS = new Map(); // token -> expiresAt (ms)
 const PAIR_FAILURES = new Map(); // ip -> { count, resetAt }
 let PAIR_GLOBAL = { count: 0, resetAt: 0 };
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const CONNECT_TTL_MS = Number(process.env.FILEBRIDGE_CONNECT_TTL_MS || 60_000);
+const CONNECT_MAX_PENDING = Number(process.env.FILEBRIDGE_CONNECT_MAX_PENDING || 8);
+/** @type {Map<string, {id:string,secret:string,name:string,ip:string,createdAt:number,expiresAt:number,status:'pending'|'approved'|'denied',token?:string,tokenExpiresAt?:number}>} */
+const CONNECT_REQUESTS = new Map();
+const CONNECT_RATE = new Map();
+let CONNECT_GLOBAL = { count: 0, resetAt: 0 };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -128,7 +134,7 @@ function setCors(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Content-Type, Range, Authorization, X-Filebridge-Token'
+      'Content-Type, Range, Authorization, X-Filebridge-Token, X-Connect-Secret'
     );
     res.setHeader(
       'Access-Control-Expose-Headers',
@@ -302,6 +308,145 @@ function issueToken() {
   const expiresAt = now + TOKEN_TTL_MS;
   TOKENS.set(token, expiresAt);
   return { token, expiresAt };
+}
+
+function connectRateLimited(req) {
+  const ip = req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let item = CONNECT_RATE.get(ip);
+  if (!item || now >= item.resetAt) {
+    item = { count: 0, resetAt: now + 60_000 };
+    CONNECT_RATE.set(ip, item);
+  }
+  if (now >= CONNECT_GLOBAL.resetAt) {
+    CONNECT_GLOBAL = { count: 0, resetAt: now + 60_000 };
+  }
+  if (item.count >= 10 || CONNECT_GLOBAL.count >= 120) return true;
+  item.count += 1;
+  CONNECT_GLOBAL.count += 1;
+  return false;
+}
+
+function cleanConnectRequests() {
+  const now = Date.now();
+  for (const [id, request] of CONNECT_REQUESTS) {
+    if (request.expiresAt + 5 * 60_000 < now) CONNECT_REQUESTS.delete(id);
+  }
+}
+
+function pendingConnectRequests() {
+  cleanConnectRequests();
+  return [...CONNECT_REQUESTS.values()]
+    .filter((request) => request.status === 'pending' && request.expiresAt > Date.now())
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function connectRequestName(value) {
+  const clean = String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, 40);
+  return clean || '未命名设备';
+}
+
+function connectSecretFrom(req) {
+  return String(req.headers['x-connect-secret'] || '').trim();
+}
+
+async function createConnectRequest(req, res) {
+  if (connectRateLimited(req)) {
+    sendJson(res, 429, { error: '连接请求过多，请稍后再试' });
+    return;
+  }
+  let body;
+  try {
+    body = await readJson(req);
+  } catch {
+    sendJson(res, 400, { error: '请求格式错误' });
+    return;
+  }
+  cleanConnectRequests();
+  const pending = [...CONNECT_REQUESTS.values()].filter(
+    (request) => request.status === 'pending' && request.expiresAt > Date.now()
+  );
+  if (pending.length >= CONNECT_MAX_PENDING) {
+    sendJson(res, 429, { error: '主机待确认请求过多，请稍后再试' });
+    return;
+  }
+  const now = Date.now();
+  const request = {
+    id: crypto.randomUUID(),
+    secret: crypto.randomBytes(32).toString('base64url'),
+    name: connectRequestName(body.name),
+    ip: req.socket.remoteAddress || 'unknown',
+    createdAt: now,
+    expiresAt: now + CONNECT_TTL_MS,
+    status: 'pending',
+  };
+  CONNECT_REQUESTS.set(request.id, request);
+  sendJson(res, 201, {
+    requestId: request.id,
+    requestSecret: request.secret,
+    expiresAt: request.expiresAt,
+  });
+}
+
+function sendConnectStatus(res, request) {
+  if (request.status === 'approved' && request.token) {
+    sendJson(res, 200, {
+      status: 'approved',
+      token: request.token,
+      expiresAt: request.tokenExpiresAt,
+    });
+    return;
+  }
+  if (request.status === 'denied') {
+    sendJson(res, 200, { status: 'denied' });
+    return;
+  }
+  if (request.expiresAt <= Date.now()) {
+    sendJson(res, 200, { status: 'expired' });
+    return;
+  }
+  sendJson(res, 200, { status: 'pending', expiresAt: request.expiresAt });
+}
+
+async function decideConnectRequest(req, res, id) {
+  if (!isLoopback(req)) {
+    sendJson(res, 403, { error: '只有主机本机可以确认连接' });
+    return;
+  }
+  let body;
+  try {
+    body = await readJson(req);
+  } catch {
+    sendJson(res, 400, { error: '请求格式错误' });
+    return;
+  }
+  cleanConnectRequests();
+  const request = CONNECT_REQUESTS.get(id);
+  if (!request) {
+    sendJson(res, 404, { error: '连接请求不存在' });
+    return;
+  }
+  if (request.expiresAt <= Date.now()) {
+    sendJson(res, 410, { error: '连接请求已过期' });
+    return;
+  }
+  if (request.status !== 'pending') {
+    sendJson(res, 409, { error: '连接请求已处理' });
+    return;
+  }
+  if (body.approve === true) {
+    const issued = issueToken();
+    request.status = 'approved';
+    request.token = issued.token;
+    request.tokenExpiresAt = issued.expiresAt;
+    sendJson(res, 200, { status: 'approved', expiresAt: request.expiresAt });
+    return;
+  }
+  request.status = 'denied';
+  sendJson(res, 200, { status: 'denied' });
 }
 
 function sendJson(res, status, data) {
@@ -611,6 +756,45 @@ async function route(req, res) {
       ips: primaryIps(),
       files: metaMap.size,
     });
+    return;
+  }
+
+  if (pathname === '/api/connect/requests' && req.method === 'POST') {
+    await createConnectRequest(req, res);
+    return;
+  }
+
+  if (pathname === '/api/connect/requests' && req.method === 'GET') {
+    if (!isLoopback(req)) {
+      sendJson(res, 403, { error: '只有主机本机可以查看连接请求' });
+      return;
+    }
+    sendJson(res, 200, {
+      requests: pendingConnectRequests().map((request) => ({
+        id: request.id,
+        name: request.name,
+        ip: request.ip,
+        createdAt: request.createdAt,
+        expiresAt: request.expiresAt,
+      })),
+    });
+    return;
+  }
+
+  const connectMatch = /^\/api\/connect\/requests\/([0-9a-f-]+)$/i.exec(pathname);
+  if (connectMatch && req.method === 'GET') {
+    const request = CONNECT_REQUESTS.get(connectMatch[1]);
+    if (!request || !secureEqual(connectSecretFrom(req), request.secret)) {
+      sendJson(res, 404, { error: '连接请求不存在' });
+      return;
+    }
+    sendConnectStatus(res, request);
+    return;
+  }
+
+  const decisionMatch = /^\/api\/connect\/requests\/([0-9a-f-]+)\/decision$/i.exec(pathname);
+  if (decisionMatch && req.method === 'POST') {
+    await decideConnectRequest(req, res, decisionMatch[1]);
     return;
   }
 
