@@ -35,7 +35,7 @@ const TMP_DIR = path.join(DATA_DIR, 'tmp');
 
 const PORT = Number(process.env.FILEBRIDGE_LAN_HUB_PORT || 42080);
 const HOST = process.env.FILEBRIDGE_LAN_HUB_HOST || '0.0.0.0';
-const VERSION = '1.4.3';
+const VERSION = '1.4.4';
 
 // 6 位码只用于配对；配对成功后签发 256-bit token。
 // 所有状态仅在当前进程内存中，重启即失效。

@@ -1,6 +1,6 @@
 [package]
 name = "filebridge-lan"
-version = "1.4.3"
+version = "1.4.4"
 description = "Filebridge-Lan：局域网文件传输（Tauri 桌面端）"
 authors = ["Filebridge-Lan contributors"]
 license = "MIT"
