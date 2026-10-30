@@ -152,6 +152,39 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
         {message && <p className="modal-message success">{message}</p>}
         {error && <p className="modal-message error">{error}</p>}
+
+        <div className="about-card">
+          <div className="about-head">
+            <span className="about-mark">F</span>
+            <div>
+              <strong>Filebridge-Lan</strong>
+              <span>版本 1.4.2 · 局域网文件传输</span>
+            </div>
+          </div>
+          <p className="about-intro">
+            手机扫码即可在同一 WiFi 下收发文件。所有文件只在本机处理，不经过 FileBridge 云端。
+          </p>
+          <dl className="about-facts">
+            <div>
+              <dt>传输</dt>
+              <dd>HTTP 直传 · SHA-256 · Range 下载 · SSE 进度</dd>
+            </div>
+            <div>
+              <dt>存储</dt>
+              <dd>电脑 Downloads/Filebridge-Lan；保存时复制到下载目录</dd>
+            </div>
+            <div>
+              <dt>安全</dt>
+              <dd>局域网为 HTTP + 访问码；跨网络中继为实验性 AES-256-GCM 端到端加密</dd>
+            </div>
+          </dl>
+          <p className="about-note">
+            跨网络中继尚未完成真实 WAN 验证，请只在可信网络内使用局域网直传。
+          </p>
+          <a href="https://github.com/8hourseontheleft6/Filebridge-Lan" target="_blank" rel="noreferrer">
+            GitHub 项目与更新
+          </a>
+        </div>
       </section>
     </div>
   );

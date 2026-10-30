@@ -1,6 +1,6 @@
 # Filebridge-Lan 架构
 
-> 1.4.1 现状：局域网 HTTP Hub + 配对码/bearer token；跨网络加密中继。WebRTC 房间已移除。
+> 1.4.2 现状：局域网 HTTP Hub + 配对码/bearer token；跨网络加密中继。WebRTC 房间已移除。
 
 ## 局域网
 

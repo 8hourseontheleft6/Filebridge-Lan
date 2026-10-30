@@ -5,6 +5,7 @@ import { formatBytes, formatDuration } from '../lib/format';
 import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo } from '../lib/hub';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
+import { RateCard } from '../components/RateCard';
 
 const SESSION_STORAGE_KEY = 'filebridge_session_code';
 const TOKEN_STORAGE_KEY = 'filebridge_session_token';
@@ -136,6 +137,9 @@ export function HttpTransfer() {
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [savedPaths, setSavedPaths] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<ToastState | null>(null);
   const [activeDownload, setActiveDownload] = useState<ActiveDownload | null>(null);
@@ -241,7 +245,11 @@ export function HttpTransfer() {
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as HubFile[];
-      setFiles(Array.isArray(data) ? data : []);
+      const nextFiles = Array.isArray(data) ? data : [];
+      setFiles(nextFiles);
+      setSelectedIds((prev) => new Set(
+        [...prev].filter((id) => nextFiles.some((file) => file.id === id))
+      ));
       setOnline(true);
     } catch {
       setOnline(false);
@@ -466,14 +474,54 @@ export function HttpTransfer() {
         return;
       }
       if (!response.ok) throw new Error('删除失败，请稍后重试');
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败，请稍后重试');
     }
   }, [refresh, token]);
 
-  const openPath = useCallback((path: string) => {
-    if (!desktop) return;
+  const deleteSelected = useCallback(async () => {
+    if (batchDeleting || batchSaving || selectedIds.size === 0) return;
+    const targets = files.filter((file) => selectedIds.has(file.id));
+    if (targets.length === 0) return;
+    if (!window.confirm(`确定从电脑上删除 ${targets.length} 个文件？此操作不可恢复。`)) return;
+
+    setBatchDeleting(true);
+    let removed = 0;
+    try {
+      for (const file of targets) {
+        const response = await fetch(`${API_BASE}/api/files/${file.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.status === 401) {
+          setToken('');
+          setCodeError('授权已过期，请在“连接详情”里重新配对');
+          return;
+        }
+        if (!response.ok) throw new Error(`删除 ${file.name} 失败`);
+        removed += 1;
+      }
+      setSelectedIds(new Set());
+      setToast({ text: `已删除 ${removed}/${targets.length} 个文件`, kind: 'success' });
+      await refresh();
+    } catch (reason) {
+      setToast({
+        text: reason instanceof Error ? reason.message : '批量删除失败',
+        kind: 'error',
+      });
+      await refresh();
+    } finally {
+      setBatchDeleting(false);
+    }
+  }, [batchDeleting, batchSaving, files, refresh, selectedIds, token]);
+
+  const openPath = useCallback((path: string) => {    if (!desktop) return;
     void invoke('open_path', { path }).catch((reason) => {
       setToast({ text: `打开文件夹失败：${String(reason)}`, kind: 'error' });
     });
@@ -486,8 +534,8 @@ export function HttpTransfer() {
     });
   }, [desktop]);
 
-  const saveDownload = useCallback(async (file: HubFile) => {
-    if (!desktop || savingId) return;
+  const saveOne = useCallback(async (file: HubFile) => {
+    if (!desktop) return;
     const transferId = makeTransferId();
     setActiveDownload({
       transferId,
@@ -501,23 +549,74 @@ export function HttpTransfer() {
     try {
       const result = await invoke<SavedFile>('save_download', { id: file.id, transferId });
       setSavedPaths((prev) => ({ ...prev, [file.id]: result.path }));
-      setToast({
-        text: result.existed ? `文件已存在，未重复保存：${result.path}` : `下载完成：${result.path}`,
-        kind: 'success',
-        path: result.path,
-      });
+      return { result };
     } catch (reason) {
       const message = String(reason);
       if (message.includes('已取消')) {
-        setToast({ text: '已取消保存', kind: 'info' });
-      } else {
-        setToast({ text: `保存失败：${message}`, kind: 'error' });
+        throw new Error('已取消保存');
       }
+      throw new Error(`保存失败：${message}`);
     } finally {
       setSavingId(null);
       setActiveDownload(null);
     }
-  }, [desktop, savingId]);
+  }, [desktop]);
+
+  const saveDownload = useCallback(async (file: HubFile) => {
+    if (!desktop || savingId || batchSaving || batchDeleting) return;
+    try {
+      const outcome = await saveOne(file);
+      if (outcome?.result) {
+        setToast({
+          text: outcome.result.existed
+            ? `文件已存在，未重复保存：${outcome.result.path}`
+            : `下载完成：${outcome.result.path}`,
+          kind: 'success',
+          path: outcome.result.path,
+        });
+      }
+    } catch (reason) {
+      setToast({
+        text: reason instanceof Error ? reason.message : String(reason),
+        kind: reason instanceof Error && reason.message === '已取消保存' ? 'info' : 'error',
+      });
+    }
+  }, [desktop, savingId, batchSaving, batchDeleting, saveOne]);
+
+  const saveSelected = useCallback(async () => {
+    if (savingId || batchSaving || batchDeleting) return;
+    const targets = files.filter((file) => selectedIds.has(file.id));
+    if (targets.length === 0) return;
+
+    if (!desktop) {
+      targets.forEach((file, index) => {
+        window.setTimeout(() => {
+          const anchor = document.createElement('a');
+          anchor.href = `${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`;
+          anchor.download = file.name;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+        }, index * 350);
+      });
+      setToast({ text: `已开始下载 ${targets.length} 个文件，请查看浏览器下载列表`, kind: 'info' });
+      return;
+    }
+
+    setBatchSaving(true);
+    let completed = 0;
+    try {
+      for (const file of targets) {
+        const outcome = await saveOne(file);
+        if (outcome?.result.path) completed += 1;
+      }
+      setToast({ text: `已保存 ${completed}/${targets.length} 个文件`, kind: 'success' });
+    } catch (reason) {
+      setToast({ text: String(reason instanceof Error ? reason.message : reason), kind: 'error' });
+    } finally {
+      setBatchSaving(false);
+    }
+  }, [batchSaving, batchDeleting, desktop, files, saveOne, savingId, selectedIds, token]);
 
   const cancelDownload = useCallback(() => {
     if (!activeDownload || activeDownload.status === 'cancelling') return;
@@ -527,6 +626,22 @@ export function HttpTransfer() {
       setToast({ text: `取消失败：${String(reason)}`, kind: 'error' });
     });
   }, [activeDownload]);
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const all = files.length > 0 && files.every((file) => prev.has(file.id));
+      return all ? new Set() : new Set(files.map((file) => file.id));
+    });
+  }, [files]);
 
   const phoneBase = resolvePhoneBase(info);
   const phoneUrl = phoneBase && sessionCode
@@ -568,6 +683,84 @@ export function HttpTransfer() {
   const liveEta = liveUpload && liveSpeed > 0
     ? Math.max(0, (liveUpload.total - liveUpload.loaded) / liveSpeed)
     : 0;
+
+  const effectiveUploadSpeed = upload && upload.status === 'uploading'
+    ? uploadSpeed
+    : showLiveUpload && liveUpload
+      ? liveSpeed
+      : 0;
+  const effectiveDownloadSpeed = activeDownload ? downloadSpeed : 0;
+  const [uploadPeak, setUploadPeak] = useState(0);
+  const [downloadPeak, setDownloadPeak] = useState(0);
+  const [uploadHistory, setUploadHistory] = useState<number[]>(() => Array(24).fill(0));
+  const [downloadHistory, setDownloadHistory] = useState<number[]>(() => Array(24).fill(0));
+  const [uploadTotal, setUploadTotal] = useState(0);
+  const [downloadTotal, setDownloadTotal] = useState(0);
+  const uploadSpeedRef = useRef(0);
+  const downloadSpeedRef = useRef(0);
+  const uploadMeterRef = useRef<{ key: number; loaded: number }>({ key: -1, loaded: 0 });
+  const liveMeterRef = useRef<{ key: string; loaded: number }>({ key: '', loaded: 0 });
+  const downloadMeterRef = useRef<{ key: string; loaded: number }>({ key: '', loaded: 0 });
+  uploadSpeedRef.current = effectiveUploadSpeed;
+  downloadSpeedRef.current = effectiveDownloadSpeed;
+
+  useEffect(() => {
+    if (!upload) return;
+    if (uploadMeterRef.current.key !== upload.startedAt) {
+      uploadMeterRef.current = { key: upload.startedAt, loaded: 0 };
+    }
+    const delta = Math.max(0, upload.loaded - uploadMeterRef.current.loaded);
+    if (delta > 0) setUploadTotal((value) => value + delta);
+    uploadMeterRef.current.loaded = upload.loaded;
+  }, [upload]);
+
+  useEffect(() => {
+    if (!liveUpload || (upload && upload.status === 'uploading')) return;
+    if (liveMeterRef.current.key !== liveUpload.id) {
+      liveMeterRef.current = { key: liveUpload.id, loaded: 0 };
+    }
+    const delta = Math.max(0, liveUpload.loaded - liveMeterRef.current.loaded);
+    if (delta > 0) setUploadTotal((value) => value + delta);
+    liveMeterRef.current.loaded = liveUpload.loaded;
+  }, [liveUpload, upload]);
+
+  useEffect(() => {
+    if (!activeDownload) return;
+    if (downloadMeterRef.current.key !== activeDownload.transferId) {
+      downloadMeterRef.current = { key: activeDownload.transferId, loaded: 0 };
+    }
+    const delta = Math.max(0, activeDownload.loaded - downloadMeterRef.current.loaded);
+    if (delta > 0) setDownloadTotal((value) => value + delta);
+    downloadMeterRef.current.loaded = activeDownload.loaded;
+  }, [activeDownload]);
+
+  useEffect(() => {
+    if (effectiveUploadSpeed > 0) {
+      setUploadPeak((value) => Math.max(value, effectiveUploadSpeed));
+      setUploadHistory((values) => [...values.slice(-23), effectiveUploadSpeed]);
+    }
+  }, [effectiveUploadSpeed]);
+
+  useEffect(() => {
+    if (effectiveDownloadSpeed > 0) {
+      setDownloadPeak((value) => Math.max(value, effectiveDownloadSpeed));
+      setDownloadHistory((values) => [...values.slice(-23), effectiveDownloadSpeed]);
+    }
+  }, [effectiveDownloadSpeed]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const up = uploadSpeedRef.current;
+      const down = downloadSpeedRef.current;
+      setUploadPeak((value) => Math.max(value, up));
+      setDownloadPeak((value) => Math.max(value, down));
+      setUploadHistory((values) => [...values.slice(-23), up]);
+      setDownloadHistory((values) => [...values.slice(-23), down]);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const allSelected = files.length > 0 && files.every((file) => selectedIds.has(file.id));
 
   const pairingLabel = token ? '已配对' : codeError ? '授权已过期' : '未配对';
   const canRotate = desktop
@@ -643,306 +836,411 @@ export function HttpTransfer() {
     </details>
   );
 
+  const guideCard = (
+    <article className="card guide-card" id="transfer-guide">
+      <div className="card-head">
+        <div>
+          <h2>使用说明</h2>
+          <p>文件列表、扫码连接、传输进度分别负责什么。</p>
+        </div>
+      </div>
+      <div className="guide-grid">
+        <div>
+          <span className="guide-num">01</span>
+          <h3>文件列表</h3>
+          <p>在这里选择、拖入、勾选批量保存或删除文件。手机上传的文件会先写入电脑的数据目录。</p>
+        </div>
+        <div>
+          <span className="guide-num">02</span>
+          <h3>扫码连接</h3>
+          <p>同一 WiFi 下让手机扫码，配对码会自动带入；扫码失败时可展开手动连接。</p>
+        </div>
+        <div>
+          <span className="guide-num">03</span>
+          <h3>进度与速率</h3>
+          <p>上传、接收和保存时的实时进度、速度与剩余时间都会显示在右侧。</p>
+        </div>
+      </div>
+      <p className="security-note">
+        存储位置：电脑的 <code>Downloads/Filebridge-Lan</code>；点击保存后复制到下载目录。
+        局域网直传目前是 HTTP 明文，只有访问码保护，不做内容加密；跨网络中继才是 AES-256-GCM 实验性端到端加密。
+      </p>
+    </article>
+  );
+
   if (!sessionReady) {
     return (
-      <section className="panel lan-panel">
-        <div className="panel-head">
-          <h2>⚡ 局域网直传</h2>
-          <span className="chip chip-warn">读取中</span>
-        </div>
-        <p className="hint">正在读取本机配对状态…</p>
-      </section>
+      <div className="lan-dashboard">
+        <article className="card loading-card">
+          <span className="loading-dot" />
+          <div>
+            <h2>正在读取连接状态</h2>
+            <p>稍等片刻，正在确认本机 Hub 和配对状态。</p>
+          </div>
+        </article>
+      </div>
     );
   }
 
   if (!token) {
     return (
-      <section className="panel lan-panel">
-        <div className="panel-head">
-          <h2>⚡ 局域网直传</h2>
-          <span className="chip chip-warn">
-            {codeError ? '授权已过期' : '需要配对'}
-          </span>
+      <div className="lan-dashboard">
+        <div className="dashboard-grid single">
+          <article className="card connection-card">
+            <div className="card-head">
+              <div>
+                <h2>连接这台电脑</h2>
+                <p>扫码通常会自动配对；失败时再手动输入 6 位配对码。</p>
+              </div>
+              <span className={`status-pill ${codeError ? 'danger' : 'warn'}`}>
+                {codeError ? '授权已过期' : '需要配对'}
+              </span>
+            </div>
+            {online === false && (
+              <div className="notice notice-bad">
+                <p>电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
+                <button type="button" className="btn btn-small" onClick={() => { setOnline(null); void loadInfo(); }}>
+                  重试连接
+                </button>
+              </div>
+            )}
+            {pairingDetails}
+          </article>
         </div>
-        <p className="hint">
-          这是一台尚未配对的设备。扫码打开时通常会自动配对；若扫码失败，请在下方手动输入电脑上显示的 6 位配对码。
-        </p>
-        {online === false && (
-          <div className="notice notice-bad">
-            <p className="hint">电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
-            <button type="button" className="btn btn-small" onClick={() => { setOnline(null); void loadInfo(); }}>
-              重试连接
-            </button>
-          </div>
-        )}
-        {pairingDetails}
-      </section>
+        {guideCard}
+      </div>
     );
   }
 
   return (
-    <section className="panel lan-panel">
-      <div className="panel-head">
-        <h2>⚡ 局域网直传</h2>
-        <span className={`chip ${statusClass}`}>{statusLabel}</span>
-      </div>
+    <div className="lan-dashboard">
+      <div className="dashboard-grid">
+        <article className="card files-card">
+          <div className="card-head">
+            <div>
+              <h2>文件列表</h2>
+              <p>可勾选多个文件批量保存/下载，也可以删除。</p>
+            </div>
+            <div className="card-actions">
+              <span className="count-badge">{files.length}</span>
+              {files.length > 0 && (
+                <button type="button" className="btn btn-ghost btn-small" onClick={toggleSelectAll}>
+                  {allSelected ? '取消全选' : '全选'}
+                </button>
+              )}
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-small"
+                  onClick={() => void saveSelected()}
+                  disabled={batchSaving || batchDeleting || savingId !== null}
+                >
+                  {desktop ? '保存所选' : '下载所选'} ({selectedIds.size})
+                </button>
+              )}
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-danger btn-small"
+                  onClick={() => void deleteSelected()}
+                  disabled={batchDeleting || batchSaving || savingId !== null}
+                >
+                  {batchDeleting ? '删除中…' : `删除所选 (${selectedIds.size})`}
+                </button>
+              )}
+              {desktop && (
+                <button type="button" className="btn btn-ghost btn-small" onClick={openDownloadDir} title="打开下载文件夹">
+                  📂 打开
+                </button>
+              )}
+              <button type="button" className="btn btn-ghost btn-small" onClick={() => void refresh()}>
+                刷新
+              </button>
+            </div>
+          </div>
 
-      {online === false && (
-        <div className="notice notice-bad">
-          <p className="hint">电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
-          <button
-            type="button"
-            className="btn btn-small"
-            onClick={() => {
-              setOnline(null);
-              void loadInfo();
-              void refresh();
+          <div
+            className={`drop-zone${dragging ? ' dragging' : ''}`}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
             }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onClick={() => inputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                inputRef.current?.click();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="选择文件上传到电脑"
           >
-            重试连接
-          </button>
-        </div>
-      )}
+            <span className="drop-icon" aria-hidden>＋</span>
+            <p><strong>选择文件</strong>，或拖放到这里</p>
+            <p className="hint">支持多选 / 拖放；大文件推荐用这里</p>
+          </div>
 
-      {online === true && (
-        phoneUrl ? (
-          <JoinQr
-            url={phoneUrl}
-            displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
-            title="手机扫码打开"
-            subtitle="同一 WiFi；配对码已自动带入，无需手动输入"
-            actions={(
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            aria-label="选择要上传的文件"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                void handleFiles(e.target.files);
+              }
+              e.target.value = '';
+            }}
+          />
+
+          {error && <p className="text-error form-error">{error}</p>}
+
+          <div className="file-list">
+            {files.length === 0 ? (
+              <div className="empty-state">
+                <span aria-hidden>📭</span>
+                <p>还没有文件</p>
+                <p className="hint">手机扫码或在这台电脑上传，文件会出现在这里</p>
+              </div>
+            ) : (
+              files.map((file) => (
+                <div key={file.id} className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
+                  <input
+                    type="checkbox"
+                    className="file-select"
+                    checked={selectedIds.has(file.id)}
+                    onChange={() => toggleSelected(file.id)}
+                    aria-label={`选择 ${file.name}`}
+                  />
+                  <span className="file-icon" aria-hidden>{fileIcon(file.name)}</span>
+                  <div className="file-main" title={file.name}>
+                    <div className="file-name">{file.name}</div>
+                    <div className="file-status">
+                      {formatBytes(file.size)} · SHA-256 {file.sha256.slice(0, 10)}…
+                    </div>
+                  </div>
+                  <div className="file-actions">
+                    {desktop ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-small btn-ghost"
+                          onClick={() => void saveDownload(file)}
+                          disabled={savingId !== null || batchSaving || batchDeleting}
+                          title={`保存 ${file.name}`}
+                        >
+                          {savingId === file.id ? '保存中…' : savedPaths[file.id] ? '重新保存' : '⬇ 保存'}
+                        </button>
+                        {savedPaths[file.id] && (
+                          <button
+                            type="button"
+                            className="btn btn-icon"
+                            onClick={() => openPath(savedPaths[file.id])}
+                            title="打开所在文件夹"
+                          >
+                            📂
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <a
+                        className="btn btn-small btn-ghost"
+                        href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
+                        download={file.name}
+                        onClick={() => setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' })}
+                        title={`下载 ${file.name}`}
+                      >
+                        ⬇
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-icon"
+                      onClick={() => void deleteFile(file.id)}
+                      title={`删除 ${file.name}`}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+
+        <article className="card connection-card">
+          <div className="card-head">
+            <div>
+              <h2>扫码连接</h2>
+              <p>同一 WiFi 下，手机扫码即可打开。</p>
+            </div>
+            <span className={`status-pill ${statusClass === 'chip-ok' ? 'ok' : statusClass === 'chip-bad' ? 'danger' : 'warn'}`}>
+              {statusLabel}
+            </span>
+          </div>
+
+          {online === false && (
+            <div className="notice notice-bad">
+              <p>电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
               <button
                 type="button"
                 className="btn btn-small"
-                aria-pressed={showCode}
-                onClick={() => setShowCode((value) => !value)}
+                onClick={() => {
+                  setOnline(null);
+                  void loadInfo();
+                  void refresh();
+                }}
               >
-                {showCode ? '隐藏 code' : '显示 code'}
+                重试连接
               </button>
-            )}
-          />
-        ) : (
-          <p className="hint">
-            未检测到局域网 IP，请确认电脑已连接 WiFi/网线后刷新。
-          </p>
-        )
-      )}
-
-      {pairingDetails}
-
-      <div
-        className={`drop-zone ${dragging ? 'dragging' : ''}`}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
-        }}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            inputRef.current?.click();
-          }
-        }}
-        role="button"
-        tabIndex={0}
-        aria-label="选择文件上传到电脑"
-      >
-        <p>点击选择文件，或拖放到这里</p>
-        <p className="hint">支持多选 / 拖放；大文件推荐用这里</p>
-      </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        aria-label="选择要上传的文件"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) {
-            void handleFiles(e.target.files);
-          }
-          e.target.value = '';
-        }}
-      />
-
-      {upload && (
-        <div className="upload-card">
-          <div className="upload-head">
-            <span className="file-name" title={upload.name}>{upload.name}</span>
-            <strong className="upload-percent">{uploadPercent}%</strong>
-          </div>
-          <div
-            className="progress-bar"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={uploadPercent}
-          >
-            <div className="progress-fill" style={{ width: `${uploadPercent}%` }} />
-          </div>
-          <div className="progress-meta">
-            <span>{formatBytes(upload.loaded)} / {formatBytes(upload.total)}</span>
-            {upload.status === 'uploading' && <span>{formatBytes(uploadSpeed)}/s</span>}
-            {upload.status === 'uploading' && <span>剩余 {formatDuration(uploadEta)}</span>}
-            {upload.status === 'done' && <span>✅ 已上传</span>}
-            {upload.status === 'error' && <span className="text-error">❌ {upload.error || '失败'}</span>}
-          </div>
-          {upload.status === 'uploading' && (
-            <button type="button" className="btn btn-small" onClick={cancelUpload}>
-              取消
-            </button>
+            </div>
           )}
-        </div>
-      )}
 
-      {error && <p className="text-error" style={{ marginTop: 8, fontSize: '0.85rem', overflowWrap: 'anywhere' }}>{error}</p>}
-
-      {showLiveUpload && liveUpload && (
-        <div className="download-live live-upload">
-          <div className="download-live-head">
-            <span className="download-live-title">📥 正在接收 {liveUpload.name}</span>
-            <strong className="upload-percent">{livePercent}%</strong>
-          </div>
-          <div
-            className="progress-bar"
-            role="progressbar"
-            aria-label="接收进度"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={livePercent}
-          >
-            <div className="progress-fill" style={{ width: `${livePercent}%` }} />
-          </div>
-          <div className="progress-meta">
-            <span>{formatBytes(liveUpload.loaded)} / {formatBytes(liveUpload.total)}</span>
-            {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
-            {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
-          </div>
-        </div>
-      )}
-
-      {activeDownload && (
-        <div className="download-live">
-          <div className="download-live-head">
-            <span className="download-live-title">💾 正在保存 {activeDownload.name}</span>
-            <strong className="upload-percent">{downloadPercent}%</strong>
-          </div>
-          <div
-            className="progress-bar"
-            role="progressbar"
-            aria-label="保存进度"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={downloadPercent}
-          >
-            <div className="progress-fill" style={{ width: `${downloadPercent}%` }} />
-          </div>
-          <div className="progress-meta">
-            <span>{formatBytes(activeDownload.loaded)} / {formatBytes(activeDownload.total)}</span>
-            {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
-            {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
-            <button
-              type="button"
-              className="btn btn-small"
-              onClick={cancelDownload}
-              disabled={activeDownload.status === 'cancelling'}
-            >
-              {activeDownload.status === 'cancelling' ? '取消中…' : '取消'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="list-head">
-        <h3>文件 <span className="muted">({files.length})</span></h3>
-        <div className="list-head-actions">
-          {desktop && (
-            <button type="button" className="btn btn-small" onClick={openDownloadDir} title="打开下载文件夹">
-              📂 打开
-            </button>
-          )}
-          <button type="button" className="btn btn-small" onClick={() => void refresh()}>
-            刷新
-          </button>
-        </div>
-      </div>
-
-      <div className="file-list">
-        {files.length === 0 ? (
-          <div className="empty-state">
-            <span aria-hidden>📭</span>
-            <p>还没有文件</p>
-            <p className="hint">手机扫码或在这台电脑上传，文件会出现在这里</p>
-          </div>
-        ) : (
-          files.map((file) => (
-            <div key={file.id} className="file-item file-row">
-              <span className="file-icon" aria-hidden>{fileIcon(file.name)}</span>
-              <div className="file-main" title={file.name}>
-                <div className="file-name">{file.name}</div>
-                <div className="file-status">
-                  {formatBytes(file.size)} · SHA-256 {file.sha256.slice(0, 10)}…
-                </div>
-              </div>
-              <div className="file-actions">
-                {desktop ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn btn-small"
-                      onClick={() => void saveDownload(file)}
-                      disabled={savingId !== null}
-                      title={`保存 ${file.name}`}
-                    >
-                      {savingId === file.id ? '保存中…' : savedPaths[file.id] ? '重新保存' : '⬇ 保存'}
-                    </button>
-                    {savedPaths[file.id] && (
-                      <button
-                        type="button"
-                        className="btn btn-small"
-                        onClick={() => openPath(savedPaths[file.id])}
-                        title="打开所在文件夹"
-                      >
-                        📂
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <a
-                    className="btn btn-small"
-                    href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
-                    download={file.name}
-                    onClick={() => setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' })}
-                    title={`下载 ${file.name}`}
+          {online === true && (
+            phoneUrl ? (
+              <JoinQr
+                url={phoneUrl}
+                displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
+                title="手机扫码打开"
+                subtitle="配对码已自动带入，无需手动输入"
+                actions={(
+                  <button
+                    type="button"
+                    className="btn btn-small btn-ghost"
+                    aria-pressed={showCode}
+                    onClick={() => setShowCode((value) => !value)}
                   >
-                    ⬇
-                  </a>
+                    {showCode ? '隐藏 code' : '显示 code'}
+                  </button>
                 )}
+              />
+            ) : (
+              <p className="hint">未检测到局域网 IP，请确认电脑已连接 WiFi/网线后刷新。</p>
+            )
+          )}
+
+          {pairingDetails}
+        </article>
+
+        <article className="card progress-card">
+          <div className="card-head">
+            <div>
+              <h2>传输进度</h2>
+              <p>上传、接收和保存的实时状态。</p>
+            </div>
+          </div>
+
+          <div className="rate-grid">
+            <RateCard
+              label="上传"
+              icon="↑"
+              speed={effectiveUploadSpeed}
+              peak={uploadPeak}
+              total={uploadTotal}
+              history={uploadHistory}
+              tone="blue"
+            />
+            <RateCard
+              label="下载"
+              icon="↓"
+              speed={effectiveDownloadSpeed}
+              peak={downloadPeak}
+              total={downloadTotal}
+              history={downloadHistory}
+              tone="green"
+            />
+          </div>
+
+          {upload && (
+            <div className="progress-block">
+              <div className="progress-row">
+                <span className="progress-title">上传 {upload.name}</span>
+                <strong>{uploadPercent}%</strong>
+              </div>
+              <div className="progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadPercent}>
+                <div className="progress-fill" style={{ width: `${uploadPercent}%` }} />
+              </div>
+              <div className="progress-meta">
+                <span>{formatBytes(upload.loaded)} / {formatBytes(upload.total)}</span>
+                {upload.status === 'uploading' && <span>{formatBytes(uploadSpeed)}/s</span>}
+                {upload.status === 'uploading' && <span>剩余 {formatDuration(uploadEta)}</span>}
+                {upload.status === 'done' && <span>✅ 已上传</span>}
+                {upload.status === 'error' && <span className="text-error">❌ {upload.error || '失败'}</span>}
+              </div>
+              {upload.status === 'uploading' && (
+                <button type="button" className="btn btn-small btn-ghost" onClick={cancelUpload}>
+                  取消
+                </button>
+              )}
+            </div>
+          )}
+
+          {showLiveUpload && liveUpload && (
+            <div className="progress-block">
+              <div className="progress-row">
+                <span className="progress-title">接收 {liveUpload.name}</span>
+                <strong>{livePercent}%</strong>
+              </div>
+              <div className="progress-bar" role="progressbar" aria-label="接收进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={livePercent}>
+                <div className="progress-fill" style={{ width: `${livePercent}%` }} />
+              </div>
+              <div className="progress-meta">
+                <span>{formatBytes(liveUpload.loaded)} / {formatBytes(liveUpload.total)}</span>
+                {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
+                {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
+              </div>
+            </div>
+          )}
+
+          {activeDownload && (
+            <div className="progress-block">
+              <div className="progress-row">
+                <span className="progress-title">保存 {activeDownload.name}</span>
+                <strong>{downloadPercent}%</strong>
+              </div>
+              <div className="progress-bar" role="progressbar" aria-label="保存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadPercent}>
+                <div className="progress-fill" style={{ width: `${downloadPercent}%` }} />
+              </div>
+              <div className="progress-meta">
+                <span>{formatBytes(activeDownload.loaded)} / {formatBytes(activeDownload.total)}</span>
+                {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
+                {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
                 <button
                   type="button"
-                  className="btn btn-small"
-                  onClick={() => void deleteFile(file.id)}
-                  title={`删除 ${file.name}`}
+                  className="btn btn-small btn-ghost"
+                  onClick={cancelDownload}
+                  disabled={activeDownload.status === 'cancelling'}
                 >
-                  🗑
+                  {activeDownload.status === 'cancelling' ? '取消中…' : '取消'}
                 </button>
               </div>
             </div>
-          ))
-        )}
+          )}
+
+          {!upload && !showLiveUpload && !activeDownload && (
+            <div className="progress-empty">
+              <span aria-hidden>↗</span>
+              <p>暂无进行中的传输</p>
+              <p className="hint">上传或保存文件后，这里会显示速度和剩余时间。</p>
+            </div>
+          )}
+        </article>
       </div>
+
+      {guideCard}
 
       {toast && (
         <div className={`toast toast-${toast.kind}`} role="status">
@@ -959,10 +1257,8 @@ export function HttpTransfer() {
       )}
 
       {online === true && isViteDev && (
-        <p className="hint" style={{ marginTop: 8 }}>
-          当前页面来自 Vite；生产环境可直接用上面的 Hub 地址访问。
-        </p>
+        <p className="hint vite-hint">当前页面来自 Vite；生产环境可直接用上面的 Hub 地址访问。</p>
       )}
-    </section>
+    </div>
   );
 }
