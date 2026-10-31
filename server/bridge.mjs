@@ -33,7 +33,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const PORT = Number(process.env.BRIDGE_PORT || 43000);
 const HOST = process.env.BRIDGE_HOST || '0.0.0.0';
 const DATA_DIR = path.resolve(process.env.BRIDGE_DATA || path.join(ROOT, '.filebridge-bridge'));

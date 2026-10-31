@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (post-1.5.0)
+## 1.5.1 - 2026-10-31
 
 - 网络从 Public 切回 Private、Hub 重启后自动通过 loopback 会话码重新配对，不再停在“授权已过期”
 - 修复设置页 GitHub 链接无响应，改用 Tauri 外部打开命令
