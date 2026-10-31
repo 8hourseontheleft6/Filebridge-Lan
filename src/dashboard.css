@@ -159,6 +159,20 @@ input {
   border-right: 1px solid var(--border);
 }
 
+@media (min-width: 861px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 208px;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .workspace {
+    grid-column: 2;
+  }
+}
+
 .brand {
   display: flex;
   align-items: center;
