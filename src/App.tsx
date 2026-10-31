@@ -7,6 +7,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { NetworkWarning } from './components/NetworkWarning';
 import { isRelayHosted, parseRelayHash } from './relay/api';
 import { isTauriHost } from './lib/hub';
+import type { LanServiceStatus } from './lib/hub';
 
 type TransferMode = 'lan' | 'relay';
 type AppView = 'transfer' | 'settings';
@@ -52,6 +53,7 @@ function BackToTop() {
 export default function App() {
   const [view, setView] = useState<AppView>('transfer');
   const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
+  const [lanServiceStatus, setLanServiceStatus] = useState<LanServiceStatus | null>(null);
   const [networkChecking, setNetworkChecking] = useState(false);
   const [networkDismissed, setNetworkDismissed] = useState(false);
   const gateSignatureRef = useRef('');
@@ -76,7 +78,6 @@ export default function App() {
         setNetworkDismissed(false);
       }
       setNetworkStatus(status);
-      await invoke('lan_service_refresh');
     } catch (reason) {
       setNetworkStatus({
         checked: false,
@@ -85,6 +86,13 @@ export default function App() {
         error: reason instanceof Error ? reason.message : String(reason),
       });
       setNetworkDismissed(false);
+    }
+
+    try {
+      const service = await invoke<LanServiceStatus>('lan_service_refresh');
+      setLanServiceStatus(service);
+    } catch {
+      setLanServiceStatus(null);
     } finally {
       setNetworkChecking(false);
     }
@@ -157,7 +165,7 @@ export default function App() {
         <main className="receiver-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.5.2 · 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.3 · 实验性中继</footer>
         <BackToTop />
       </div>
     );
@@ -206,7 +214,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className="sidebar-version">v1.5.2</span>
+          <span className="sidebar-version">v1.5.3</span>
           <span className="sidebar-mode">{activeMode === 'lan' ? '局域网直传' : '跨网络中继 · 实验'}</span>
         </div>
       </aside>
@@ -268,13 +276,16 @@ export default function App() {
           {view === 'settings' ? (
             <SettingsPanel onClose={() => setView('transfer')} />
           ) : activeMode === 'lan' ? (
-            <HttpTransfer />
+            <HttpTransfer
+              lanService={lanServiceStatus}
+              networkBlocked={Boolean(networkStatus && !networkStatus.compliant)}
+            />
           ) : (
             <RelayTransfer />
           )}
         </main>
 
-        <footer className="app-footer">Filebridge-Lan v1.5.2 · 局域网直传 / 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.3 · 局域网直传 / 实验性中继</footer>
       </div>
 
       <HostApprovalGate />

@@ -8,6 +8,13 @@ export interface HubInfo {
   files: number;
 }
 
+export interface LanServiceStatus {
+  running: boolean;
+  gate: string;
+  detail: string | null;
+  port: number;
+}
+
 /** Tauri 生产页面的 origin 是 http://tauri.localhost，不能用来拼 127.0.0.1 的 API 地址。 */
 export function isTauriHost(): boolean {
   if (typeof window === 'undefined') return false;

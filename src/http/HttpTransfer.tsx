@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { formatBytes, formatDuration } from '../lib/format';
-import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo } from '../lib/hub';
+import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo, type LanServiceStatus } from '../lib/hub';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
@@ -131,8 +131,15 @@ function fileIcon(name: string): string {
   return '📄';
 }
 
-export function HttpTransfer() {
+interface HttpTransferProps {
+  lanService?: LanServiceStatus | null;
+  networkBlocked?: boolean;
+}
+
+export function HttpTransfer({ lanService = null, networkBlocked = false }: HttpTransferProps = {}) {
   const desktop = isTauriHost();
+  const publicPaused = lanService?.gate === 'public_blocked' || networkBlocked;
+  const [pausedError, setPausedError] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
   const [info, setInfo] = useState<HubInfo | null>(null);
   const [files, setFiles] = useState<HubFile[]>([]);
@@ -390,6 +397,28 @@ export function HttpTransfer() {
       setOnline(false);
     }
   }, []);
+
+  const openNetworkSettings = useCallback(async () => {
+    setPausedError('');
+    try {
+      await invoke('open_external', { url: 'ms-settings:network-wifi' });
+    } catch (reason) {
+      setPausedError(`打开网络设置失败：${reason instanceof Error ? reason.message : String(reason)}`);
+    }
+  }, []);
+
+  // Public pause is a security state, not a service failure. When the gate opens
+  // again, re-probe the Hub instead of showing a stale "service unavailable" card.
+  useEffect(() => {
+    if (publicPaused || !sessionReady || !desktop) return;
+    void loadInfo();
+  }, [desktop, loadInfo, publicPaused, sessionReady]);
+
+  useEffect(() => {
+    if (publicPaused || !desktop || online !== false) return;
+    const timer = window.setInterval(() => { void loadInfo(); }, 3000);
+    return () => window.clearInterval(timer);
+  }, [desktop, loadInfo, online, publicPaused]);
 
   const unlock = useCallback(async () => {
     const candidate = codeInput.trim();
@@ -850,24 +879,40 @@ export function HttpTransfer() {
 
   const allSelected = files.length > 0 && files.every((file) => selectedIds.has(file.id));
 
-  const pairingLabel = token ? '已配对' : codeError ? '授权已过期' : '未配对';
+  const pairingLabel = token
+    ? publicPaused
+      ? '已配对 · 当前不可连接'
+      : online === true
+        ? '已配对 · 在线'
+        : online === false
+          ? '已配对 · 服务异常'
+          : '已配对 · 连接中'
+    : codeError
+      ? '授权已过期'
+      : '未配对';
   const canRotate = desktop
     || window.location.hostname === 'localhost'
     || window.location.hostname === '127.0.0.1';
-  const statusLabel = !sessionReady
-    ? '读取中'
-    : online === null
-      ? '连接中'
-      : online === false
-        ? '服务不可用'
-        : !token
-          ? (codeError ? '授权已过期' : '需要配对')
-          : '在线';
+  const statusLabel = publicPaused
+    ? '网络暂停'
+    : !sessionReady
+      ? '读取中'
+      : online === null
+        ? '连接中'
+        : online === false
+          ? (desktop ? '服务异常' : '无法连接')
+          : !token
+            ? (codeError ? '授权已过期' : '需要配对')
+            : '在线';
   const statusClass = statusLabel === '在线'
     ? 'chip-ok'
-    : statusLabel === '服务不可用' || statusLabel === '授权已过期'
-      ? 'chip-bad'
-      : 'chip-warn';
+    : statusLabel === '网络暂停'
+      ? 'chip-warn'
+      : statusLabel === '服务异常'
+        || statusLabel === '无法连接'
+        || statusLabel === '授权已过期'
+        ? 'chip-bad'
+        : 'chip-warn';
 
   const pairingDetails = (
     <details className="pairing-details" open={!token || undefined}>
@@ -956,6 +1001,57 @@ export function HttpTransfer() {
     </article>
   );
 
+  const serviceNotice = online === false && !publicPaused ? (
+    <div className="notice notice-bad">
+      <p>
+        {desktop
+          ? lanService?.running === false
+            ? '局域网服务未能启动。请检查 TCP 42080 / UDP 42081 是否被占用，或查看下方发现状态后重试。'
+            : '电脑端局域网服务异常，暂时无法访问文件页。请重试连接。'
+          : '无法连接电脑端服务。请确认运行 Filebridge-Lan 的电脑已启动，并与当前设备在同一局域网。'}
+      </p>
+      <button
+        type="button"
+        className="btn btn-small"
+        onClick={() => {
+          setOnline(null);
+          void loadInfo();
+          void refresh();
+        }}
+      >
+        重试连接
+      </button>
+    </div>
+  ) : null;
+
+  if (publicPaused) {
+    return (
+      <div className="lan-dashboard">
+        <article className="card lan-paused-card">
+          <p className="eyebrow">NETWORK PAUSED</p>
+          <h2>当前网络为公用网络，局域网传输服务已暂停。</h2>
+          <p className="lan-paused-copy">
+            切换到专用网络后将自动恢复，不会在 Public 网络开放 42080/42081。
+          </p>
+          <div className="lan-paused-meta">
+            <span className={`status-pill ${token ? 'warn' : 'warn'}`}>
+              {token ? '已配对 · 当前不可连接' : '未配对 · 当前不可连接'}
+            </span>
+          </div>
+          <div className="lan-paused-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void openNetworkSettings()}>
+              前往网络设置
+            </button>
+          </div>
+          {pausedError && <p className="text-error">{pausedError}</p>}
+          <p className="hint">
+            局域网 IP、扫码和手动配对码仅在专用网络下可用。
+          </p>
+        </article>
+      </div>
+    );
+  }
+
   if (!sessionReady) {
     return (
       <div className="lan-dashboard">
@@ -986,14 +1082,7 @@ export function HttpTransfer() {
                 {codeError ? '授权已过期' : '需要配对'}
               </span>
             </div>
-            {online === false && (
-              <div className="notice notice-bad">
-                <p>电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
-                <button type="button" className="btn btn-small" onClick={() => { setOnline(null); void loadInfo(); }}>
-                  重试连接
-                </button>
-              </div>
-            )}
+            {serviceNotice}
             <ConnectPanel autoConnect={autoConnect} onConnected={handleConnectToken} />
             {pairingDetails}
           </article>
@@ -1183,22 +1272,7 @@ export function HttpTransfer() {
             </span>
           </div>
 
-          {online === false && (
-            <div className="notice notice-bad">
-              <p>电脑端服务不可用。请确认 Filebridge-Lan 已启动，并允许专用网络防火墙。</p>
-              <button
-                type="button"
-                className="btn btn-small"
-                onClick={() => {
-                  setOnline(null);
-                  void loadInfo();
-                  void refresh();
-                }}
-              >
-                重试连接
-              </button>
-            </div>
-          )}
+          {serviceNotice}
 
           {online === true && (
             phoneUrl ? (

@@ -2319,3 +2319,44 @@ input {
   height: 0;
   display: none;
 }
+/* Public network security pause */
+.lan-paused-card {
+  max-width: 760px;
+  margin: 8px auto 0;
+  padding: 26px 28px;
+}
+
+.lan-paused-card h2 {
+  margin: 6px 0 8px;
+  color: #253246;
+  font-size: 1.15rem;
+  line-height: 1.45;
+}
+
+.lan-paused-copy {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+
+.lan-paused-meta {
+  margin-top: 14px;
+}
+
+.lan-paused-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (max-width: 560px) {
+  .lan-paused-card {
+    padding: 20px 18px;
+  }
+
+  .lan-paused-card h2 {
+    font-size: 1.02rem;
+  }
+}

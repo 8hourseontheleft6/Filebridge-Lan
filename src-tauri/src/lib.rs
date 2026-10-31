@@ -77,7 +77,8 @@ fn configure_webrtc_webview2() {}
 #[tauri::command]
 fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
     const PROJECT_URL: &str = "https://github.com/8hourseontheleft6/Filebridge-Lan";
-    if url != PROJECT_URL {
+    const NETWORK_SETTINGS_URL: &str = "ms-settings:network-wifi";
+    if url != PROJECT_URL && url != NETWORK_SETTINGS_URL {
         return Err("不允许打开这个链接".to_string());
     }
     app.shell()
