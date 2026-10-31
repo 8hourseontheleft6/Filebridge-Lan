@@ -1,6 +1,7 @@
 pub mod discovery;
 pub mod downloads;
 pub mod hub;
+pub mod network_profile;
 
 use std::path::PathBuf;
 use tauri::Manager;
@@ -88,6 +89,7 @@ pub fn run() {
             downloads::open_path,
             discovery::discovery_peers,
             discovery::discovery_status,
+            network_profile::network_profile_status,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

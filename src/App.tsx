@@ -1,11 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { HttpTransfer } from './http/HttpTransfer';
 import { HostApprovalGate } from './http/HostApprovalGate';
 import { RelayTransfer } from './relay/RelayTransfer';
 import { SettingsPanel } from './components/SettingsPanel';
+import { NetworkWarning } from './components/NetworkWarning';
 import { isRelayHosted, parseRelayHash } from './relay/api';
+import { isTauriHost } from './lib/hub';
 
 type TransferMode = 'lan' | 'relay';
+
+export interface NetworkProfile {
+  name: string;
+  category: string;
+  label: string;
+}
+
+export interface NetworkProfileStatus {
+  checked: boolean;
+  compliant: boolean;
+  networks: NetworkProfile[];
+  error?: string | null;
+}
 
 function BackToTop() {
   const [visible, setVisible] = useState(false);
@@ -34,10 +50,37 @@ function BackToTop() {
 
 export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
+  const [networkChecking, setNetworkChecking] = useState(false);
+  const [networkDismissed, setNetworkDismissed] = useState(false);
   const relayLink = parseRelayHash();
   const relayOnly = isRelayHosted();
   const [mode, setMode] = useState<TransferMode>(relayOnly ? 'relay' : 'lan');
   const activeMode: TransferMode = relayOnly ? 'relay' : mode;
+
+  const checkNetwork = useCallback(async () => {
+    if (!isTauriHost()) return;
+    setNetworkChecking(true);
+    try {
+      const status = await invoke<NetworkProfileStatus>('network_profile_status');
+      setNetworkStatus(status);
+      setNetworkDismissed(false);
+    } catch (reason) {
+      setNetworkStatus({
+        checked: false,
+        compliant: false,
+        networks: [],
+        error: reason instanceof Error ? reason.message : String(reason),
+      });
+      setNetworkDismissed(false);
+    } finally {
+      setNetworkChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkNetwork();
+  }, [checkNetwork]);
 
   useEffect(() => {
     const keepAtTop = () => {
@@ -198,6 +241,14 @@ export default function App() {
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       <HostApprovalGate />
       <BackToTop />
+      {isTauriHost() && networkStatus && !networkStatus.compliant && !networkDismissed && (
+        <NetworkWarning
+          status={networkStatus}
+          retrying={networkChecking}
+          onRetry={() => void checkNetwork()}
+          onClose={() => setNetworkDismissed(true)}
+        />
+      )}
     </div>
   );
 }

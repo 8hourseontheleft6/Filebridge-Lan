@@ -2013,3 +2013,110 @@ input {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+/* Network profile gate */
+.network-warning-card {
+  width: min(430px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid #e5ebf3;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(20, 35, 60, 0.25);
+  text-align: center;
+}
+
+.network-warning-mark {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 10px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #fff4e5;
+  color: #b8751f;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.network-warning-card h2 {
+  margin: 0;
+  color: #253246;
+  font-size: 1.08rem;
+}
+
+.network-warning-intro,
+.network-warning-tip {
+  color: #718096;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.network-warning-intro {
+  margin: 12px 0 0;
+}
+
+.network-warning-tip {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #f7f9fc;
+  text-align: left;
+}
+
+.network-warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.network-warning-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid #f0e1ca;
+  border-radius: 8px;
+  background: #fffbf5;
+  color: #5d4a32;
+  font-size: 0.75rem;
+}
+
+.network-warning-item span {
+  color: #b8751f;
+  white-space: nowrap;
+}
+
+.network-warning-error {
+  margin: 10px 0 0;
+  color: #c7383d;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.network-warning-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.network-warning-actions .btn {
+  min-width: 96px;
+}
+
+@media (max-width: 560px) {
+  .network-warning-card {
+    padding: 18px;
+  }
+
+  .network-warning-actions {
+    flex-direction: column-reverse;
+  }
+
+  .network-warning-actions .btn {
+    width: 100%;
+  }
+}
