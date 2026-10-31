@@ -1,50 +1,24 @@
 #Requires -RunAsAdministrator
-# Filebridge-Lan Windows firewall repair
+# Filebridge-Lan Windows firewall repair (manual helper)
 # Usage (Administrator PowerShell):
 #   powershell -ExecutionPolicy Bypass -File .\scripts\fix-firewall.ps1
+#   powershell -ExecutionPolicy Bypass -File .\scripts\fix-firewall.ps1 -ExePath "C:\Path\filebridge-lan.exe"
+
+[CmdletBinding()]
+param(
+    [string]$ExePath
+)
 
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path $env:LOCALAPPDATA 'Filebridge-Lan\filebridge-lan.exe'
 
-if (-not (Test-Path $exe)) {
-    throw "Filebridge-Lan executable not found: $exe"
+if (-not $ExePath) {
+    $ExePath = Join-Path $env:LOCALAPPDATA 'Filebridge-Lan\filebridge-lan.exe'
 }
 
-Write-Host "Repairing Filebridge-Lan firewall rules..."
-Write-Host "Program: $exe"
-
-# Remove all existing rules for this program, including Block rules.
-$filters = @(Get-NetFirewallApplicationFilter | Where-Object {
-    $_.Program -and $_.Program.Equals($exe, [StringComparison]::OrdinalIgnoreCase)
-})
-foreach ($filter in $filters) {
-    $filter | Get-NetFirewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+$installerScript = Join-Path $PSScriptRoot '..\src-tauri\nsis\install-firewall.ps1'
+if (-not (Test-Path -LiteralPath $installerScript)) {
+    throw "Firewall install script not found: $installerScript"
 }
 
-Get-NetFirewallRule -DisplayName 'Filebridge-Lan' -ErrorAction SilentlyContinue |
-    Remove-NetFirewallRule -ErrorAction SilentlyContinue
-Get-NetFirewallRule -DisplayName 'Filebridge-Lan Discovery' -ErrorAction SilentlyContinue |
-    Remove-NetFirewallRule -ErrorAction SilentlyContinue
-
-New-NetFirewallRule `
-    -DisplayName 'Filebridge-Lan' `
-    -Description 'Filebridge-Lan HTTP Hub' `
-    -Direction Inbound `
-    -Program $exe `
-    -Action Allow `
-    -Protocol TCP `
-    -LocalPort 42080 `
-    -Profile Private,Domain | Out-Null
-
-New-NetFirewallRule `
-    -DisplayName 'Filebridge-Lan Discovery' `
-    -Description 'Filebridge-Lan LAN peer discovery' `
-    -Direction Inbound `
-    -Program $exe `
-    -Action Allow `
-    -Protocol UDP `
-    -LocalPort 42081 `
-    -Profile Private,Domain | Out-Null
-
-Write-Host 'Done: Filebridge-Lan inbound TCP 42080 and UDP 42081 are allowed on Private/Domain networks.'
-Write-Host 'If the phone still cannot connect, set the Wi-Fi network to Private and disable AP isolation.'
+& $installerScript -ExePath $ExePath
+exit $LASTEXITCODE

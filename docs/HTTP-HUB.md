@@ -130,7 +130,7 @@ npm run test:hub
 
 覆盖：配对码、Host/Origin、配对 token、401、上传/SHA-256、下载、Range、空文件、文件名清洗、CORS、删除、轮换、配对限流。
 
-## 8. 电脑互联（1.5.1）
+## 8. 电脑互联（1.5.2）
 
 ### 连接请求 API
 
@@ -148,7 +148,7 @@ npm run test:hub
 Rust 桌面 Hub 使用 **UDP 42081** 广播：
 
 ```json
-{"app":"filebridge-lan","version":"1.5.1","id":"稳定实例ID","name":"DESKTOP-A","port":42080}
+{"app":"filebridge-lan","version":"1.5.2","id":"稳定实例ID","name":"DESKTOP-A","port":42080}
 ```
 
 广播不包含配对码、token、文件名、用户名或路径。发现失败不影响扫码、手动配对和直接 IP 访问。

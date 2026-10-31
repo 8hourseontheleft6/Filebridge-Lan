@@ -1,6 +1,6 @@
 {
   "name": "filebridge-lan",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "license": "MIT",
   "author": "Filebridge-Lan contributors",
@@ -16,7 +16,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "bridge": "node server/bridge.mjs",
-    "test:bridge": "node scripts/bridge-smoke.mjs"
+    "test:bridge": "node scripts/bridge-smoke.mjs",
+    "test:firewall": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-firewall-installer.ps1"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",

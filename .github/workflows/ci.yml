@@ -34,5 +34,8 @@ jobs:
       - name: Bridge smoke tests
         run: npm run test:bridge
 
+      - name: Firewall installer checks
+        run: npm run test:firewall
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.2 - 2026-10-31
+
+- 修复 NSIS 安装器使用超长 `-Command` 导致防火墙规则被错误创建为 UDP 4 / Profile Any
+- 安装器改为释放独立 `install-firewall.ps1`，通过 `-File` + `-ExePath` 执行
+- 安装脚本按安装路径删除旧/阻止规则，重建 TCP 42080、UDP 42081，并校验 Profile/Direction/Action/Program
+- 新增防火墙安装器静态检查和含空格/`$` 路径的模拟测试
+
 ## 1.5.1 - 2026-10-31
 
 - 网络从 Public 切回 Private、Hub 重启后自动通过 loopback 会话码重新配对，不再停在“授权已过期”
