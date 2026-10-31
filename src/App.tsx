@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { HttpTransfer } from './http/HttpTransfer';
 import { HostApprovalGate } from './http/HostApprovalGate';
 import { RelayTransfer } from './relay/RelayTransfer';
@@ -7,12 +7,83 @@ import { isRelayHosted, parseRelayHash } from './relay/api';
 
 type TransferMode = 'lan' | 'relay';
 
+function BackToTop() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const update = () => setVisible(window.scrollY > 120);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
+
+  return (
+    <button
+      type="button"
+      className={`back-to-top${visible ? ' visible' : ''}`}
+      aria-label="回到页面顶部"
+      title="回到顶部"
+      tabIndex={visible ? 0 : -1}
+      aria-hidden={!visible}
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+    >
+      ↑
+    </button>
+  );
+}
+
 export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const relayLink = parseRelayHash();
   const relayOnly = isRelayHosted();
   const [mode, setMode] = useState<TransferMode>(relayOnly ? 'relay' : 'lan');
   const activeMode: TransferMode = relayOnly ? 'relay' : mode;
+
+  useEffect(() => {
+    const keepAtTop = () => {
+      if (window.scrollX !== 0) {
+        window.scrollTo({ left: 0, top: window.scrollY });
+      }
+    };
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.scrollLeft !== 0) {
+        target.scrollLeft = 0;
+      }
+      keepAtTop();
+    };
+    let startX = 0;
+    let startY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      const dx = Math.abs(event.touches[0].clientX - startX);
+      const dy = Math.abs(event.touches[0].clientY - startY);
+      if (dx > dy) event.preventDefault();
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+        event.preventDefault();
+      }
+    };
+    document.addEventListener('scroll', onScroll, true);
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('resize', keepAtTop);
+    keepAtTop();
+    return () => {
+      document.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('resize', keepAtTop);
+    };
+  }, []);
 
   if (relayLink) {
     return (
@@ -21,7 +92,7 @@ export default function App() {
           <div className="brand">
             <span className="brand-mark">F</span>
             <div>
-              <strong>Filebridge-Lan</strong>
+              <strong>Filebridge Lan</strong>
               <span>跨网络中继 · 实验性接收</span>
             </div>
           </div>
@@ -30,6 +101,7 @@ export default function App() {
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
         <footer className="app-footer">Filebridge-Lan v1.5.0 · 实验性中继</footer>
+        <BackToTop />
       </div>
     );
   }
@@ -44,8 +116,7 @@ export default function App() {
         <div className="brand">
           <span className="brand-mark">F</span>
           <div>
-            <strong>Filebridge</strong>
-            <span>Lan Transfer</span>
+            <strong>Filebridge Lan</strong>
           </div>
         </div>
 
@@ -126,6 +197,7 @@ export default function App() {
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       <HostApprovalGate />
+      <BackToTop />
     </div>
   );
 }
