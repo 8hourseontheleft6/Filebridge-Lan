@@ -14,6 +14,44 @@ interface ConnectPanelProps {
 
 type Phase = 'idle' | 'creating' | 'waiting' | 'denied' | 'expired' | 'error';
 
+const PENDING_KEY = 'filebridge_connect_pending';
+
+function readPending(): ConnectRequestCreated | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ConnectRequestCreated>;
+    if (
+      typeof parsed.requestId !== 'string'
+      || typeof parsed.requestSecret !== 'string'
+      || typeof parsed.expiresAt !== 'number'
+      || parsed.expiresAt <= Date.now()
+    ) {
+      window.sessionStorage.removeItem(PENDING_KEY);
+      return null;
+    }
+    return parsed as ConnectRequestCreated;
+  } catch {
+    return null;
+  }
+}
+
+function savePending(request: ConnectRequestCreated) {
+  try {
+    window.sessionStorage.setItem(PENDING_KEY, JSON.stringify(request));
+  } catch {
+    // sessionStorage 不可用时只影响刷新恢复，不影响本次请求
+  }
+}
+
+function clearPending() {
+  try {
+    window.sessionStorage.removeItem(PENDING_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelProps) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [request, setRequest] = useState<ConnectRequestCreated | null>(null);
@@ -33,26 +71,31 @@ export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelP
         const status = await getConnectStatus(request, API_BASE);
         if (!active) return;
         if (status.status === 'approved' && status.token) {
+          clearPending();
           setPhase('idle');
           stoppedRef.current = true;
           onConnected(status.token, status.expiresAt || 0);
           return;
         }
         if (status.status === 'denied') {
+          clearPending();
           setPhase('denied');
           setError('主机拒绝了这次连接请求');
           stoppedRef.current = true;
           return;
         }
         if (status.status === 'expired') {
+          clearPending();
           setPhase('expired');
           setError('主机未确认或请求已过期');
           stoppedRef.current = true;
         }
       } catch (reason) {
         if (!active) return;
+        const message = reason instanceof Error ? reason.message : '查询连接状态失败';
+        if (message.includes('不存在') || message.includes('失效')) clearPending();
         setPhase('error');
-        setError(reason instanceof Error ? reason.message : '查询连接状态失败');
+        setError(message);
         stoppedRef.current = true;
       }
     };
@@ -70,10 +113,18 @@ export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelP
   }, [onConnected, phase, request]);
 
   async function start() {
+    const saved = readPending();
+    if (saved) {
+      setRequest(saved);
+      setRemaining(Math.max(1, Math.ceil((saved.expiresAt - Date.now()) / 1000)));
+      setPhase('waiting');
+      return;
+    }
     setPhase('creating');
     setError('');
     try {
       const created = await createConnectRequest(API_BASE, deviceDisplayName());
+      savePending(created);
       setRequest(created);
       setRemaining(Math.max(1, Math.ceil((created.expiresAt - Date.now()) / 1000)));
       setPhase('waiting');
@@ -86,6 +137,13 @@ export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelP
   useEffect(() => {
     if (!autoConnect || autoStartedRef.current) return;
     autoStartedRef.current = true;
+    const saved = readPending();
+    if (saved) {
+      setRequest(saved);
+      setRemaining(Math.max(1, Math.ceil((saved.expiresAt - Date.now()) / 1000)));
+      setPhase('waiting');
+      return;
+    }
     void start();
   }, [autoConnect]);
 
