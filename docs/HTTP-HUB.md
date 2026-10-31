@@ -159,3 +159,17 @@ Rust 桌面 Hub 使用 **UDP 42081** 广播：
 - UDP 42081：Private/Domain
 - 程序级规则；不允许 Public/Any
 - 安装器/修复脚本已更新，但真实 UAC/防火墙验证仍需人工完成
+### 定向广播与发现状态（修复候选）
+
+发现服务除全局 `255.255.255.255` 外，会读取 Windows `GetAdaptersAddresses` 的 IPv4 前缀，向每个有效子网的定向广播地址发送：例如 `192.168.2.43/24` 同时发往 `192.168.2.255:42081`。跳过 loopback、link-local、无效前缀、`/31`、`/32` 和重复目标。单个目标发送失败只记录错误，不终止线程，也不清空已有 peer。
+
+本地查询命令 `discovery_status` 返回：
+
+- `status`：`starting` / `listening` / `error`
+- `bound`、`bindAddress`
+- `sendTargets`
+- `lastSendAt`、`lastReceiveAt`
+- `lastError`
+- `peerCount`
+
+该命令只返回本地发现诊断，不包含 token、requestSecret、文件名或路径。

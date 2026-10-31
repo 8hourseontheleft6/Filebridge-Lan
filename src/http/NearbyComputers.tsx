@@ -11,6 +11,17 @@ export interface NearbyPeer {
   url: string;
 }
 
+export interface DiscoveryStatus {
+  status: 'starting' | 'listening' | 'error' | string;
+  bound: boolean;
+  bindAddress?: string | null;
+  sendTargets: string[];
+  lastSendAt?: number | null;
+  lastReceiveAt?: number | null;
+  lastError?: string | null;
+  peerCount: number;
+}
+
 interface NearbyComputersProps {
   onConnect: (peer: NearbyPeer) => void;
   activePeerId?: string | null;
@@ -20,18 +31,23 @@ interface NearbyComputersProps {
 export function NearbyComputers({ onConnect, activePeerId = null, activeState = 'waiting' }: NearbyComputersProps) {
   const desktop = isTauriHost();
   const [peers, setPeers] = useState<NearbyPeer[]>([]);
+  const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null);
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     if (!desktop) return;
     try {
-      const result = await invoke<NearbyPeer[]>('discovery_peers');
+      const [result, status] = await Promise.all([
+        invoke<NearbyPeer[]>('discovery_peers'),
+        invoke<DiscoveryStatus>('discovery_status'),
+      ]);
       setPeers(Array.isArray(result) ? result : []);
+      setDiscovery(status);
+      setScanning(status?.status === 'starting');
       setError('');
     } catch (reason) {
       setError(String(reason));
-    } finally {
       setScanning(false);
     }
   }, [desktop]);
@@ -44,6 +60,14 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
   }, [desktop, refresh]);
 
   if (!desktop) return null;
+
+  const serviceError = discovery?.status === 'error'
+    ? (discovery.lastError || '发现服务启动失败')
+    : error
+      ? '发现服务不可用'
+      : '';
+  const sendTargetCount = discovery?.sendTargets?.length || 0;
+  const lastError = discovery?.lastError;
 
   return (
     <article className="card nearby-card">
@@ -63,17 +87,22 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
       {scanning ? (
         <div className="nearby-empty">
           <span className="loading-dot" />
-          <span>正在搜索附近的电脑…</span>
+          <span>正在启动发现服务…</span>
         </div>
-      ) : error ? (
+      ) : serviceError ? (
         <div className="nearby-empty nearby-error">
-          <span>发现服务不可用。</span>
+          <span>{serviceError}</span>
           <span>请用局域网 IP、扫码或手动配对继续。</span>
         </div>
       ) : peers.length === 0 ? (
         <div className="nearby-empty">
           <span>暂时没有发现其他电脑。</span>
-          <span>请确认另一台电脑也打开了 Filebridge，并在同一局域网。</span>
+          <span>请确认双方在同一子网、Windows 网络为专用，并关闭 AP/客户端隔离。</span>
+          {discovery?.bound && (
+            <span className="nearby-diagnostic">
+              UDP 42081 已监听 · {sendTargetCount} 个发送目标
+            </span>
+          )}
         </div>
       ) : (
         <div className="nearby-list">
@@ -95,7 +124,14 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
               )}
             </div>
           ))}
+          <span className="nearby-diagnostic">
+            UDP 42081 · {sendTargetCount} 个发送目标
+          </span>
         </div>
+      )}
+
+      {!scanning && !serviceError && lastError && (
+        <p className="nearby-warning">最近发现错误：{lastError}</p>
       )}
     </article>
   );

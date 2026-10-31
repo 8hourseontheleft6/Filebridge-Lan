@@ -1,10 +1,10 @@
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,19 @@ pub struct Peer {
     pub url: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryStatus {
+    pub status: String,
+    pub bound: bool,
+    pub bind_address: Option<String>,
+    pub send_targets: Vec<String>,
+    pub last_send_at: Option<u64>,
+    pub last_receive_at: Option<u64>,
+    pub last_error: Option<String>,
+    pub peer_count: usize,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 struct Beacon {
     app: String,
@@ -32,6 +45,12 @@ struct Beacon {
     id: String,
     name: String,
     port: u16,
+}
+
+#[derive(Clone)]
+struct Ipv4Interface {
+    ip: Ipv4Addr,
+    prefix_len: u8,
 }
 
 struct PeerRecord {
@@ -43,9 +62,19 @@ struct PeerRecord {
     last_seen: Instant,
 }
 
+struct StatusData {
+    status: String,
+    bound: bool,
+    bind_address: Option<String>,
+    send_targets: Vec<SocketAddr>,
+    last_send_at: Option<u64>,
+    last_receive_at: Option<u64>,
+    last_error: Option<String>,
+}
+
 pub struct DiscoveryState {
-    peer_id: String,
     peers: Arc<Mutex<HashMap<String, PeerRecord>>>,
+    status: Arc<Mutex<StatusData>>,
 }
 
 fn discovery_port() -> u16 {
@@ -53,6 +82,13 @@ fn discovery_port() -> u16 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(DISCOVERY_PORT)
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn sanitize_name(value: &str) -> String {
@@ -111,24 +147,188 @@ fn parse_beacon(bytes: &[u8], source: SocketAddr, self_id: &str) -> Option<PeerR
     })
 }
 
+/// /0 and /31+ do not have a usable traditional broadcast address.
+/// /31 is point-to-point (RFC 3021); /32 is a single host.
+fn directed_broadcast(ip: Ipv4Addr, prefix_len: u8) -> Option<Ipv4Addr> {
+    if prefix_len == 0 || prefix_len >= 31 {
+        return None;
+    }
+    let mask = u32::MAX << (32 - prefix_len);
+    let broadcast = (u32::from(ip) & mask) | !mask;
+    Some(Ipv4Addr::from(broadcast))
+}
+
+fn targets_from_interfaces(interfaces: &[Ipv4Interface], port: u16) -> Vec<SocketAddr> {
+    let mut targets = vec![
+        SocketAddr::from((Ipv4Addr::new(255, 255, 255, 255), port)),
+    ];
+    for interface in interfaces {
+        if interface.ip.is_loopback()
+            || interface.ip.is_unspecified()
+            || interface.ip.is_link_local()
+        {
+            continue;
+        }
+        let Some(broadcast) = directed_broadcast(interface.ip, interface.prefix_len) else {
+            continue;
+        };
+        let target = SocketAddr::from((broadcast, port));
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
+    targets
+}
+
+fn build_targets(port: u16) -> (Vec<SocketAddr>, Option<String>) {
+    let mut targets = vec![
+        SocketAddr::from((Ipv4Addr::new(255, 255, 255, 255), port)),
+    ];
+    match ipv4_interfaces() {
+        Ok(interfaces) => {
+            for target in targets_from_interfaces(&interfaces, port) {
+                if !targets.contains(&target) {
+                    targets.push(target);
+                }
+            }
+            (targets, None)
+        }
+        Err(error) => (targets, Some(format!("枚举网络接口失败：{error}"))),
+    }
+}
+
+#[cfg(windows)]
+fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
+    use std::ptr;
+
+    use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS};
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER,
+        GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows_sys::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
+
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    let mut size: u32 = 15_000;
+    let mut buffer: Vec<usize>;
+
+    loop {
+        let words = (size as usize).div_ceil(std::mem::size_of::<usize>()).max(1);
+        buffer = vec![0usize; words];
+        let result = unsafe {
+            GetAdaptersAddresses(
+                AF_INET as u32,
+                flags,
+                ptr::null(),
+                buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+                &mut size,
+            )
+        };
+        if result == ERROR_BUFFER_OVERFLOW {
+            continue;
+        }
+        if result != ERROR_SUCCESS {
+            return Err(format!("GetAdaptersAddresses 返回错误 {result}"));
+        }
+        break;
+    }
+
+    let mut interfaces = Vec::new();
+    let mut adapter = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    while !adapter.is_null() {
+        let current = unsafe { &*adapter };
+        let mut unicast = current.FirstUnicastAddress;
+        while !unicast.is_null() {
+            let item = unsafe { &*unicast };
+            let sockaddr = item.Address.lpSockaddr;
+            if !sockaddr.is_null() && unsafe { (*sockaddr).sa_family } == AF_INET {
+                let sin = unsafe { &*(sockaddr.cast::<SOCKADDR_IN>()) };
+                let octets = unsafe { sin.sin_addr.S_un.S_un_b };
+                let ip = Ipv4Addr::new(octets.s_b1, octets.s_b2, octets.s_b3, octets.s_b4);
+                if !ip.is_loopback() && !ip.is_unspecified() {
+                    interfaces.push(Ipv4Interface {
+                        ip,
+                        prefix_len: item.OnLinkPrefixLength,
+                    });
+                }
+            }
+            unicast = item.Next;
+        }
+        adapter = current.Next;
+    }
+    Ok(interfaces)
+}
+
+#[cfg(not(windows))]
+fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
+    // The desktop application currently targets Windows. Non-Windows builds
+    // retain the global broadcast target and do not guess a subnet mask.
+    Ok(Vec::new())
+}
+
+fn record_error(status: &Arc<Mutex<StatusData>>, message: String) {
+    if let Ok(mut data) = status.lock() {
+        data.last_error = Some(message);
+    }
+}
+
 impl DiscoveryState {
     pub fn start(port: u16, data_dir: PathBuf) -> Self {
         let peer_id = stable_id(&data_dir);
         let peers: Arc<Mutex<HashMap<String, PeerRecord>>> = Arc::new(Mutex::new(HashMap::new()));
-        let state = Self { peer_id: peer_id.clone(), peers: peers.clone() };
+        let discovery_port = discovery_port();
+        let (targets, interface_error) = build_targets(discovery_port);
+        let status = Arc::new(Mutex::new(StatusData {
+            status: "starting".to_string(),
+            bound: false,
+            bind_address: None,
+            send_targets: targets.clone(),
+            last_send_at: None,
+            last_receive_at: None,
+            last_error: interface_error,
+        }));
+        let state = Self {
+            peers: peers.clone(),
+            status: status.clone(),
+        };
         let name = device_name();
         let version = env!("CARGO_PKG_VERSION").to_string();
-        let discovery_port = discovery_port();
+
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", discovery_port)) {
                 Ok(socket) => socket,
                 Err(error) => {
-                    eprintln!("[discovery] UDP {discovery_port} 绑定失败: {error}");
+                    let message = if error.kind() == std::io::ErrorKind::AddrInUse {
+                        format!("发现服务启动失败：端口 {discovery_port} 已被占用")
+                    } else {
+                        format!("发现服务启动失败：UDP {discovery_port} 绑定失败：{error}")
+                    };
+                    if let Ok(mut data) = status.lock() {
+                        data.status = "error".to_string();
+                        data.bound = false;
+                        data.last_error = Some(message);
+                    }
                     return;
                 }
             };
-            let _ = socket.set_broadcast(true);
-            let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
+
+            if let Ok(mut data) = status.lock() {
+                data.status = "listening".to_string();
+                data.bound = true;
+                data.bind_address = Some(format!("0.0.0.0:{discovery_port}"));
+            }
+
+            if let Err(error) = socket.set_broadcast(true) {
+                record_error(&status, format!("启用 UDP 广播失败：{error}"));
+            }
+            if let Err(error) = socket.set_read_timeout(Some(Duration::from_millis(500))) {
+                record_error(&status, format!("设置 UDP 读取超时失败：{error}"));
+                if let Ok(mut data) = status.lock() {
+                    data.status = "error".to_string();
+                }
+                return;
+            }
+
             let mut buffer = [0u8; 2048];
             let mut last_beacon = Instant::now() - BEACON_INTERVAL;
             loop {
@@ -141,28 +341,52 @@ impl DiscoveryState {
                         port,
                     };
                     if let Ok(payload) = serde_json::to_vec(&beacon) {
-                        let _ = socket.send_to(&payload, ("255.255.255.255", discovery_port));
+                        let mut sent = false;
+                        for target in &targets {
+                            match socket.send_to(&payload, target) {
+                                Ok(_) => sent = true,
+                                Err(error) => {
+                                    record_error(&status, format!("发送到 {target} 失败：{error}"));
+                                }
+                            }
+                        }
+                        if sent {
+                            if let Ok(mut data) = status.lock() {
+                                data.last_send_at = Some(now_ms());
+                            }
+                        }
                     }
                     last_beacon = Instant::now();
                 }
+
                 match socket.recv_from(&mut buffer) {
                     Ok((size, source)) => {
                         if let Some(record) = parse_beacon(&buffer[..size], source, &peer_id) {
                             let id = record.id.clone();
-                            peers.lock().unwrap().insert(id, record);
+                            if let Ok(mut peers) = peers.lock() {
+                                peers.insert(id, record);
+                            }
+                            if let Ok(mut data) = status.lock() {
+                                data.last_receive_at = Some(now_ms());
+                            }
                         }
                     }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
-                        || error.kind() == std::io::ErrorKind::TimedOut => {}
-                    Err(_) => thread::sleep(Duration::from_millis(100)),
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            || error.kind() == std::io::ErrorKind::TimedOut => {}
+                    Err(error) => {
+                        record_error(&status, format!("接收 UDP 数据失败：{error}"));
+                        thread::sleep(Duration::from_millis(100));
+                    }
                 }
+
                 let now = Instant::now();
-                peers
-                    .lock()
-                    .unwrap()
-                    .retain(|_, peer| now.duration_since(peer.last_seen) <= PEER_TTL);
+                if let Ok(mut peers) = peers.lock() {
+                    peers.retain(|_, peer| now.duration_since(peer.last_seen) <= PEER_TTL);
+                }
             }
         });
+
         state
     }
 
@@ -185,14 +409,34 @@ impl DiscoveryState {
         list
     }
 
-    pub fn peer_id(&self) -> &str {
-        &self.peer_id
+    pub fn status(&self) -> DiscoveryStatus {
+        // Lock peers first: the discovery thread also updates peers before status.
+        let now = Instant::now();
+        let mut peers = self.peers.lock().unwrap();
+        peers.retain(|_, peer| now.duration_since(peer.last_seen) <= PEER_TTL);
+        let peer_count = peers.len();
+        let data = self.status.lock().unwrap();
+        DiscoveryStatus {
+            status: data.status.clone(),
+            bound: data.bound,
+            bind_address: data.bind_address.clone(),
+            send_targets: data.send_targets.iter().map(ToString::to_string).collect(),
+            last_send_at: data.last_send_at,
+            last_receive_at: data.last_receive_at,
+            last_error: data.last_error.clone(),
+            peer_count,
+        }
     }
 }
 
 #[tauri::command]
 pub fn discovery_peers(state: tauri::State<'_, DiscoveryState>) -> Vec<Peer> {
     state.peers()
+}
+
+#[tauri::command]
+pub fn discovery_status(state: tauri::State<'_, DiscoveryState>) -> DiscoveryStatus {
+    state.status()
 }
 
 #[cfg(test)]
@@ -220,5 +464,52 @@ mod tests {
     fn peer_url_handles_ipv4_and_ipv6() {
         assert_eq!(peer_url("192.168.1.8", 42080), "http://192.168.1.8:42080/");
         assert_eq!(peer_url("fe80::1", 42080), "http://[fe80::1]:42080/");
+    }
+
+    #[test]
+    fn directed_broadcast_supports_common_prefixes() {
+        assert_eq!(
+            directed_broadcast(Ipv4Addr::new(192, 168, 2, 43), 24),
+            Some(Ipv4Addr::new(192, 168, 2, 255))
+        );
+        assert_eq!(
+            directed_broadcast(Ipv4Addr::new(192, 168, 2, 43), 16),
+            Some(Ipv4Addr::new(192, 168, 255, 255))
+        );
+        assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 2, 43), 31), None);
+        assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 2, 43), 32), None);
+        assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 2, 43), 33), None);
+        assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 2, 43), 0), None);
+    }
+
+    #[test]
+    fn targets_include_global_and_directed_and_skip_invalid() {
+        let interfaces = vec![
+            Ipv4Interface { ip: Ipv4Addr::new(192, 168, 2, 43), prefix_len: 24 },
+            Ipv4Interface { ip: Ipv4Addr::new(192, 168, 2, 44), prefix_len: 24 },
+            Ipv4Interface { ip: Ipv4Addr::new(127, 0, 0, 1), prefix_len: 8 },
+            Ipv4Interface { ip: Ipv4Addr::new(169, 254, 1, 2), prefix_len: 16 },
+            Ipv4Interface { ip: Ipv4Addr::new(10, 0, 0, 8), prefix_len: 31 },
+        ];
+        let targets = targets_from_interfaces(&interfaces, 42081);
+        assert_eq!(targets.len(), 2);
+        assert!(targets.contains(&SocketAddr::from((Ipv4Addr::new(255, 255, 255, 255), 42081))));
+        assert!(targets.contains(&SocketAddr::from((Ipv4Addr::new(192, 168, 2, 255), 42081))));
+    }
+
+    #[test]
+    fn beacon_payload_has_only_discovery_fields() {
+        let beacon = Beacon {
+            app: "filebridge-lan".to_string(),
+            version: "1.5.0".to_string(),
+            id: "peer-a".to_string(),
+            name: "DESKTOP-A".to_string(),
+            port: 42080,
+        };
+        let value = serde_json::to_value(beacon).unwrap();
+        let object = value.as_object().unwrap();
+        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["app", "id", "name", "port", "version"]);
     }
 }

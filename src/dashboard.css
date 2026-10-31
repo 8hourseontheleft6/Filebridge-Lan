@@ -1998,3 +1998,18 @@ input {
     padding: 9px 12px;
   }
 }
+.nearby-diagnostic {
+  width: 100%;
+  color: #9aa5b5;
+  font-size: 0.65rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.nearby-warning {
+  margin: 8px 0 0;
+  color: #a8662d;
+  font-size: 0.67rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

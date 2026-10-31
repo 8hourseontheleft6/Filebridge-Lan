@@ -87,6 +87,7 @@ pub fn run() {
             downloads::cancel_download,
             downloads::open_path,
             discovery::discovery_peers,
+            discovery::discovery_status,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
