@@ -58,6 +58,14 @@
 - 程序级规则，无 Public/Any
 - 安装器与修复脚本已同步，但尚未在本机实际执行
 
+## 发布流程
+
+- `v1.5.0` tag 触发 CI 从该 tag 构建 NSIS 安装包。
+- Release 只创建 **Draft**，不会自动正式发布。
+- Draft 的资产和 Release notes 中的 SHA-256 都来自本次 CI 构建。
+- 用户下载 Draft 资产复核通过后，才在 GitHub 上手动正式发布；正式发布前不重新构建或替换附件。
+- 本地 `release/` 目录的已验证包不能替代 CI Draft 资产。
+
 ## 未验证 / 待最终人工复核
 
 - Public 硬门禁的真实 Public 网络切换与 UDP 停止观察

@@ -7,11 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的现有 tag，例如 v1.2.0'
+        description: '要发布的现有 tag，例如 v1.5.0'
         required: true
+        type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -19,9 +24,30 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout release tag
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve and verify version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $packageVersion = node -p "require('./package.json').version"
+          $tauriVersion = node -p "require('./src-tauri/tauri.conf.json').version"
+          $cargoVersion = (Select-String -Path 'src-tauri/Cargo.toml' -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ($version -ne $packageVersion -or $version -ne $tauriVersion -or $version -ne $cargoVersion) {
+            throw "tag/version mismatch: tag=$tag package=$packageVersion tauri=$tauriVersion cargo=$cargoVersion"
+          }
+          $head = (git rev-parse HEAD).Trim()
+          $tagCommit = (git rev-list -n 1 $tag).Trim()
+          if ($head -ne $tagCommit) {
+            throw "checkout HEAD $head does not match tag $tag ($tagCommit)"
+          }
+          "TAG=$tag" >> $env:GITHUB_ENV
+          "VERSION=$version" >> $env:GITHUB_ENV
 
       - uses: actions/setup-node@v4
         with:
@@ -36,33 +62,39 @@ jobs:
       - name: Build Tauri installer
         run: npm run tauri build
 
+      - name: Locate installer and compute SHA-256
+        id: package
+        shell: pwsh
+        run: |
+          $installer = Join-Path (Get-Location) "src-tauri/target/release/bundle/nsis/Filebridge-Lan_${env:VERSION}_x64-setup.exe"
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "expected installer not found: $installer"
+          }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLower()
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
       - name: Prepare release notes
         shell: pwsh
         run: |
-          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
-          $version = $tag.TrimStart('v')
-          $notes = "docs/RELEASE-$version.md"
-          if (Test-Path $notes) {
-            Copy-Item $notes release-notes.md
+          $notes = "docs/RELEASE-$env:VERSION.md"
+          if (Test-Path -LiteralPath $notes) {
+            Copy-Item -LiteralPath $notes -Destination release-notes.md
           } else {
-            "Filebridge-Lan $tag" | Set-Content release-notes.md
+            "Filebridge-Lan $env:TAG" | Set-Content -Path release-notes.md -Encoding utf8
           }
+          Add-Content -Path release-notes.md -Value "`n## Installer SHA-256`n`n``${{ steps.package.outputs.sha256 }}``" -Encoding utf8
 
-      - name: Record installer SHA-256
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
-          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
-          Add-Content -Path release-notes.md -Value "`n## Installer SHA-256`n`n``$hash``" -Encoding utf8
-
-      - name: Publish GitHub Release
+      - name: Create Draft Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Filebridge-Lan ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ env.TAG }}
+          name: Filebridge-Lan ${{ env.TAG }}
           body_path: release-notes.md
-          files: src-tauri/target/release/bundle/nsis/*.exe
+          files: ${{ steps.package.outputs.installer }}
           fail_on_unmatched_files: true
+          draft: true
+          overwrite_files: true
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
