@@ -18,6 +18,7 @@ export interface DiscoveryStatus {
   sendTargets: string[];
   lastSendAt?: number | null;
   lastReceiveAt?: number | null;
+  currentError?: string | null;
   lastError?: string | null;
   peerCount: number;
 }
@@ -62,12 +63,12 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
   if (!desktop) return null;
 
   const serviceError = discovery?.status === 'error'
-    ? (discovery.lastError || '发现服务启动失败')
+    ? (discovery.currentError || discovery.lastError || '发现服务启动失败')
     : error
       ? '发现服务不可用'
       : '';
   const sendTargetCount = discovery?.sendTargets?.length || 0;
-  const lastError = discovery?.lastError;
+  const currentError = discovery?.currentError;
 
   return (
     <article className="card nearby-card">
@@ -130,8 +131,8 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
         </div>
       )}
 
-      {!scanning && !serviceError && lastError && (
-        <p className="nearby-warning">最近发现错误：{lastError}</p>
+      {!scanning && !serviceError && currentError && (
+        <p className="nearby-warning">当前发现错误：{currentError}</p>
       )}
     </article>
   );

@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -13,6 +16,7 @@ use uuid::Uuid;
 const DISCOVERY_PORT: u16 = 42081;
 const PEER_TTL: Duration = Duration::from_secs(7);
 const BEACON_INTERVAL: Duration = Duration::from_secs(2);
+const TARGET_REFRESH: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +38,7 @@ pub struct DiscoveryStatus {
     pub send_targets: Vec<String>,
     pub last_send_at: Option<u64>,
     pub last_receive_at: Option<u64>,
+    pub current_error: Option<String>,
     pub last_error: Option<String>,
     pub peer_count: usize,
 }
@@ -48,9 +53,13 @@ struct Beacon {
 }
 
 #[derive(Clone)]
-struct Ipv4Interface {
-    ip: Ipv4Addr,
-    prefix_len: u8,
+pub(crate) struct Ipv4Interface {
+    pub ip: Ipv4Addr,
+    pub prefix_len: u8,
+    pub adapter_name: String,
+    pub friendly_name: String,
+    pub if_type: u32,
+    pub oper_status: u32,
 }
 
 struct PeerRecord {
@@ -69,12 +78,15 @@ struct StatusData {
     send_targets: Vec<SocketAddr>,
     last_send_at: Option<u64>,
     last_receive_at: Option<u64>,
+    current_error: Option<String>,
     last_error: Option<String>,
 }
 
 pub struct DiscoveryState {
     peers: Arc<Mutex<HashMap<String, PeerRecord>>>,
     status: Arc<Mutex<StatusData>>,
+    stop: Arc<AtomicBool>,
+    thread: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 fn discovery_port() -> u16 {
@@ -158,7 +170,7 @@ fn directed_broadcast(ip: Ipv4Addr, prefix_len: u8) -> Option<Ipv4Addr> {
     Some(Ipv4Addr::from(broadcast))
 }
 
-fn targets_from_interfaces(interfaces: &[Ipv4Interface], port: u16) -> Vec<SocketAddr> {
+pub(crate) fn targets_from_interfaces(interfaces: &[Ipv4Interface], port: u16) -> Vec<SocketAddr> {
     let mut targets = vec![
         SocketAddr::from((Ipv4Addr::new(255, 255, 255, 255), port)),
     ];
@@ -198,7 +210,31 @@ fn build_targets(port: u16) -> (Vec<SocketAddr>, Option<String>) {
 }
 
 #[cfg(windows)]
-fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
+fn pstr_to_string(value: windows_sys::core::PSTR) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    unsafe { std::ffi::CStr::from_ptr(value as *const i8) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[cfg(windows)]
+fn pwstr_to_string(value: windows_sys::core::PWSTR) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    unsafe {
+        while *value.add(len) != 0 {
+            len += 1;
+        }
+        String::from_utf16_lossy(std::slice::from_raw_parts(value, len))
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
     use std::ptr;
 
     use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS};
@@ -249,6 +285,10 @@ fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
                     interfaces.push(Ipv4Interface {
                         ip,
                         prefix_len: item.OnLinkPrefixLength,
+                        adapter_name: pstr_to_string(current.AdapterName),
+                        friendly_name: pwstr_to_string(current.FriendlyName),
+                        if_type: current.IfType,
+                        oper_status: current.OperStatus as u32,
                     });
                 }
             }
@@ -260,7 +300,7 @@ fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
 }
 
 #[cfg(not(windows))]
-fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
+pub(crate) fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
     // The desktop application currently targets Windows. Non-Windows builds
     // retain the global broadcast target and do not guess a subnet mask.
     Ok(Vec::new())
@@ -268,6 +308,7 @@ fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
 
 fn record_error(status: &Arc<Mutex<StatusData>>, message: String) {
     if let Ok(mut data) = status.lock() {
+        data.current_error = Some(message.clone());
         data.last_error = Some(message);
     }
 }
@@ -285,16 +326,21 @@ impl DiscoveryState {
             send_targets: targets.clone(),
             last_send_at: None,
             last_receive_at: None,
+            current_error: interface_error.clone(),
             last_error: interface_error,
         }));
+        let stop = Arc::new(AtomicBool::new(false));
         let state = Self {
             peers: peers.clone(),
             status: status.clone(),
+            stop: stop.clone(),
+            thread: Mutex::new(None),
         };
         let name = device_name();
         let version = env!("CARGO_PKG_VERSION").to_string();
+        let thread_stop = stop.clone();
 
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", discovery_port)) {
                 Ok(socket) => socket,
                 Err(error) => {
@@ -306,6 +352,7 @@ impl DiscoveryState {
                     if let Ok(mut data) = status.lock() {
                         data.status = "error".to_string();
                         data.bound = false;
+                        data.current_error = Some(message.clone());
                         data.last_error = Some(message);
                     }
                     return;
@@ -330,8 +377,28 @@ impl DiscoveryState {
             }
 
             let mut buffer = [0u8; 2048];
+            let mut targets = targets;
             let mut last_beacon = Instant::now() - BEACON_INTERVAL;
+            let mut last_target_refresh = Instant::now();
             loop {
+                if thread_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                if last_target_refresh.elapsed() >= TARGET_REFRESH {
+                    let (next_targets, interface_error) = build_targets(discovery_port);
+                    if let Some(error) = interface_error {
+                        record_error(&status, error);
+                    } else if next_targets != targets {
+                        targets = next_targets;
+                        if let Ok(mut data) = status.lock() {
+                            data.send_targets = targets.clone();
+                            data.current_error = None;
+                        }
+                    }
+                    last_target_refresh = Instant::now();
+                }
+
                 if last_beacon.elapsed() >= BEACON_INTERVAL {
                     let beacon = Beacon {
                         app: "filebridge-lan".to_string(),
@@ -353,6 +420,7 @@ impl DiscoveryState {
                         if sent {
                             if let Ok(mut data) = status.lock() {
                                 data.last_send_at = Some(now_ms());
+                                data.current_error = None;
                             }
                         }
                     }
@@ -368,6 +436,7 @@ impl DiscoveryState {
                             }
                             if let Ok(mut data) = status.lock() {
                                 data.last_receive_at = Some(now_ms());
+                                data.current_error = None;
                             }
                         }
                     }
@@ -384,8 +453,13 @@ impl DiscoveryState {
                 if let Ok(mut peers) = peers.lock() {
                     peers.retain(|_, peer| now.duration_since(peer.last_seen) <= PEER_TTL);
                 }
+
+                if thread_stop.load(Ordering::Relaxed) {
+                    break;
+                }
             }
         });
+        *state.thread.lock().unwrap() = Some(handle);
 
         state
     }
@@ -423,20 +497,20 @@ impl DiscoveryState {
             send_targets: data.send_targets.iter().map(ToString::to_string).collect(),
             last_send_at: data.last_send_at,
             last_receive_at: data.last_receive_at,
+            current_error: data.current_error.clone(),
             last_error: data.last_error.clone(),
             peer_count,
         }
     }
-}
 
-#[tauri::command]
-pub fn discovery_peers(state: tauri::State<'_, DiscoveryState>) -> Vec<Peer> {
-    state.peers()
-}
-
-#[tauri::command]
-pub fn discovery_status(state: tauri::State<'_, DiscoveryState>) -> DiscoveryStatus {
-    state.status()
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut thread) = self.thread.lock() {
+            if let Some(handle) = thread.take() {
+                let _ = handle.join();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -484,12 +558,22 @@ mod tests {
 
     #[test]
     fn targets_include_global_and_directed_and_skip_invalid() {
+        fn iface(ip: [u8; 4], prefix_len: u8) -> Ipv4Interface {
+            Ipv4Interface {
+                ip: Ipv4Addr::from(ip),
+                prefix_len,
+                adapter_name: String::new(),
+                friendly_name: String::new(),
+                if_type: 6,
+                oper_status: 1,
+            }
+        }
         let interfaces = vec![
-            Ipv4Interface { ip: Ipv4Addr::new(192, 168, 2, 43), prefix_len: 24 },
-            Ipv4Interface { ip: Ipv4Addr::new(192, 168, 2, 44), prefix_len: 24 },
-            Ipv4Interface { ip: Ipv4Addr::new(127, 0, 0, 1), prefix_len: 8 },
-            Ipv4Interface { ip: Ipv4Addr::new(169, 254, 1, 2), prefix_len: 16 },
-            Ipv4Interface { ip: Ipv4Addr::new(10, 0, 0, 8), prefix_len: 31 },
+            iface([192, 168, 2, 43], 24),
+            iface([192, 168, 2, 44], 24),
+            iface([127, 0, 0, 1], 8),
+            iface([169, 254, 1, 2], 16),
+            iface([10, 0, 0, 8], 31),
         ];
         let targets = targets_from_interfaces(&interfaces, 42081);
         assert_eq!(targets.len(), 2);

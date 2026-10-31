@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { HttpTransfer } from './http/HttpTransfer';
 import { HostApprovalGate } from './http/HostApprovalGate';
@@ -53,6 +53,7 @@ export default function App() {
   const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
   const [networkChecking, setNetworkChecking] = useState(false);
   const [networkDismissed, setNetworkDismissed] = useState(false);
+  const gateSignatureRef = useRef('');
   const relayLink = parseRelayHash();
   const relayOnly = isRelayHosted();
   const [mode, setMode] = useState<TransferMode>(relayOnly ? 'relay' : 'lan');
@@ -63,8 +64,18 @@ export default function App() {
     setNetworkChecking(true);
     try {
       const status = await invoke<NetworkProfileStatus>('network_profile_status');
+      const signature = JSON.stringify([
+        status.checked,
+        status.compliant,
+        status.error,
+        status.networks,
+      ]);
+      if (gateSignatureRef.current !== signature) {
+        gateSignatureRef.current = signature;
+        setNetworkDismissed(false);
+      }
       setNetworkStatus(status);
-      setNetworkDismissed(false);
+      await invoke('lan_service_refresh');
     } catch (reason) {
       setNetworkStatus({
         checked: false,
@@ -80,6 +91,8 @@ export default function App() {
 
   useEffect(() => {
     void checkNetwork();
+    const timer = window.setInterval(() => { void checkNetwork(); }, 5000);
+    return () => window.clearInterval(timer);
   }, [checkNetwork]);
 
   useEffect(() => {

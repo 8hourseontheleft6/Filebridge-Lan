@@ -1,6 +1,7 @@
 pub mod discovery;
 pub mod downloads;
 pub mod hub;
+pub mod lan_service;
 pub mod network_profile;
 
 use std::path::PathBuf;
@@ -87,8 +88,10 @@ pub fn run() {
             downloads::save_download,
             downloads::cancel_download,
             downloads::open_path,
-            discovery::discovery_peers,
-            discovery::discovery_status,
+            lan_service::lan_service_refresh,
+            lan_service::lan_service_status,
+            lan_service::discovery_peers,
+            lan_service::discovery_status,
             network_profile::network_profile_status,
         ])
         .setup(|app| {
@@ -99,7 +102,9 @@ pub fn run() {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(42080);
-            app.manage(discovery::DiscoveryState::start(port, data_dir.clone()));
+            let lan_service = lan_service::LanServiceState::new(port, data_dir.clone(), dist_dir);
+            lan_service.apply_startup();
+            app.manage(lan_service);
             let default_download_dir = handle
                 .path()
                 .download_dir()
@@ -109,11 +114,7 @@ pub fn run() {
                 default_download_dir,
             ));
 
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = hub::serve(port, data_dir, dist_dir).await {
-                    eprintln!("[hub] 启动失败（端口 {port} 可能已被占用）: {error}");
-                }
-            });
+            lan_service::spawn_monitor(handle);
 
             Ok(())
         })

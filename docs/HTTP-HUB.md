@@ -153,15 +153,17 @@ Rust 桌面 Hub 使用 **UDP 42081** 广播：
 
 广播不包含配对码、token、文件名、用户名或路径。发现失败不影响扫码、手动配对和直接 IP 访问。
 
+**网络门禁：** 只有实际承载 Filebridge 的 Private/Domain 网络才启动 UDP 发现和局域网 HTTP Hub。Public/未知网络下不会创建 42081 发现线程，也不会在局域网接口启动 42080 Hub；前端仍会打开并提示改用专用网络。网络切回 Private 后由后台监控自动恢复，不要求重启应用。关闭提示弹窗不会重新启动服务。
+
 ### 防火墙
 
 - TCP 42080：Private/Domain
 - UDP 42081：Private/Domain
 - 程序级规则；不允许 Public/Any
 - 安装器/修复脚本已更新，但真实 UAC/防火墙验证仍需人工完成
-### 定向广播与发现状态（修复候选）
+### 定向广播与发现状态
 
-发现服务除全局 `255.255.255.255` 外，会读取 Windows `GetAdaptersAddresses` 的 IPv4 前缀，向每个有效子网的定向广播地址发送：例如 `192.168.2.43/24` 同时发往 `192.168.2.255:42081`。跳过 loopback、link-local、无效前缀、`/31`、`/32` 和重复目标。单个目标发送失败只记录错误，不终止线程，也不清空已有 peer。
+发现服务除全局 `255.255.255.255` 外，会读取 Windows `GetAdaptersAddresses` 的 IPv4 前缀，向每个有效子网的定向广播地址发送：例如 `192.168.2.43/24` 同时发往 `192.168.2.255:42081`。跳过 loopback、link-local、无效前缀、`/31`、`/32` 和重复目标。目标每 5 秒重新枚举，适配 Wi-Fi 重连、IP 或前缀变化。单个目标发送失败只记录错误，不终止线程，也不清空已有 peer。
 
 本地查询命令 `discovery_status` 返回：
 
@@ -169,7 +171,10 @@ Rust 桌面 Hub 使用 **UDP 42081** 广播：
 - `bound`、`bindAddress`
 - `sendTargets`
 - `lastSendAt`、`lastReceiveAt`
-- `lastError`
+- `currentError`（当前错误，成功收发后清除）
+- `lastError`（最近历史错误）
 - `peerCount`
 
 该命令只返回本地发现诊断，不包含 token、requestSecret、文件名或路径。
+
+**验收状态：** 用户已在两台真实 Windows 电脑上验证发现、主机批准和文件传输主流程通过。Public 硬门禁、网络切换恢复和最终安装包仍待本轮新构建的人工复核。

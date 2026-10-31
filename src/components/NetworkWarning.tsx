@@ -35,8 +35,8 @@ export function NetworkWarning({ status, retrying, onRetry, onClose }: NetworkWa
         </h2>
         <p className="network-warning-intro">
           {status.checked
-            ? 'Windows 将当前连接识别为公用网络。公用网络会阻止 Filebridge-Lan 的局域网发现和文件访问。'
-            : '未能读取 Windows 网络类型。请确认网络已连接后重试。'}
+            ? 'Windows 将当前连接识别为公用网络。为避免在公用网络上暴露设备名和文件服务，Filebridge 的局域网服务不会启动。'
+            : '未能读取 Windows 网络类型。局域网服务不会启动，请确认网络已连接后重试。'}
         </p>
 
         {publicNetworks.length > 0 && (
@@ -55,6 +55,9 @@ export function NetworkWarning({ status, retrying, onRetry, onClose }: NetworkWa
         <p className="network-warning-tip">
           请把当前 Wi-Fi 或以太网改为“专用网络”：<br />
           Windows 设置 → 网络和 Internet → Wi-Fi / 以太网 → 当前网络 → 网络配置文件 → 专用网络
+        </p>
+        <p className="network-warning-tip">
+          修复后可继续使用扫码、手动 IP 或配对码连接；应用会自动重新检测，无需重启。
         </p>
 
         <div className="network-warning-actions">
