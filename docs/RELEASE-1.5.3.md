@@ -1,10 +1,20 @@
 # Filebridge-Lan 1.5.3
 
-发布日期：2026-10-31（Draft 候选，未正式发布）
+发布日期：2026-10-31（已正式发布）
 
 1.5.3 是 1.5.2 的发布后修复版本，保持现有局域网发现、主机确认、传输主流程和已验收的防火墙脚本不变，修复 Public 网络下的状态文案与交互。
 
 1.5.0 聚焦电脑端互联：自动发现 + 主机确认，同时保留扫码、手动配对码和直接 IP 访问。
+
+## 正式 Release
+
+- Release URL：https://github.com/8hourseontheleft6/Filebridge-Lan/releases/tag/v1.5.3
+- tag：`v1.5.3`
+- tag commit：`d87c159675c051d6bd53a0767545d8d63bfa4d94`
+- 资产名称：`Filebridge-Lan_1.5.3_x64-setup.exe`
+- 大小：`5,364,457 bytes`
+- SHA-256：`83dda9d735cd0a969c3781908e2f6aac9e1bdf83e50c534154ba3b983c67ea72`
+- 状态：正式发布，`isDraft=false`，`prerelease=false`，当前 Latest
 
 ## 两条连接路径
 
@@ -84,22 +94,30 @@
 - TCP 42080：Private/Domain
 - UDP 42081：Private/Domain
 - 程序级规则，无 Public/Any
-- 安装器与修复脚本已同步，但尚未在本机实际执行
+- v1.5.2 安装器已在真机安装验证；v1.5.3 沿用同一防火墙脚本
 
-## 发布流程
+## 发布流程（已完成）
 
-- `v1.5.3` tag 触发 CI 从该 tag 构建 NSIS 安装包。
-- Release 只创建 **Draft**，不会自动正式发布。
-- Draft 的资产和 Release notes 中的 SHA-256 都来自本次 CI 构建。
-- 用户下载 Draft 资产复核通过后，才在 GitHub 上手动正式发布；正式发布前不重新构建或替换附件。
-- 本地 `release/` 目录的已验证包不能替代 CI Draft 资产。
+- GitHub Release workflow 从 `v1.5.3` tag 构建 NSIS 安装包并创建 Draft。
+- Draft 资产经下载、SHA-256 核验和人工安装/双机测试通过。
+- `v1.5.3` Draft 已原地发布，没有重新构建。
+- 发布过程未重新上传、未替换附件、未移动 tag。
 
-## 未验证 / 待最终人工复核
+## 已验证
 
-- Public 硬门禁的真实 Public 网络切换与 UDP 停止观察
-- 关闭网络弹窗后 42081 确实不再广播
-- 从 Public 切回 Private 后无需重启的恢复流程
-- Windows 防火墙/UAC 在新安装包上的最终状态
+- Private 网络下 TCP 42080 / UDP 42081 防火墙规则正确，Profile 为 Domain/Private，Inbound Allow，指向当前安装的 `filebridge-lan.exe`
+- Public 网络下 TCP 42080 和 UDP 42081 均无监听
+- 点击 Windows 网络提示的“稍后设置”后，Public 门禁保持关闭
+- 切回 Private 后自动恢复监听和配对，不再出现“授权已过期”
+- Private 网络下发现、主机批准、文件页和一次实际传输正常
+- 安装器防火墙/UAC 在新安装包上的检查通过
+
+## 已知限制
+
+在 Windows 网络类型检测失败、没有可用网络适配器或网络类别未知时，界面可能沿用“公用网络安全暂停”提示。此时安全门禁仍保持关闭，TCP 42080 和 UDP 42081 不会开放。该问题仅影响错误状态文案，不影响 Public 门禁、Private 自动恢复或防火墙规则。计划在后续版本中进一步区分网络检测失败状态。
+
+## 尚未验证
+
 - 多网卡/VPN/AP 隔离/跨子网环境
 - 真实手机 390×844 的最终构建复测
 
