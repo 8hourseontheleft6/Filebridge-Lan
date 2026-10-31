@@ -295,4 +295,64 @@ mod tests {
             normalize_key("abc123")
         );
     }
+
+    #[test]
+    fn public_virtual_adapter_does_not_block_private_wifi() {
+        let interfaces = vec![
+            crate::discovery::Ipv4Interface {
+                ip: std::net::Ipv4Addr::new(192, 168, 2, 43),
+                prefix_len: 24,
+                adapter_name: "{A}".to_string(),
+                friendly_name: "Wi-Fi".to_string(),
+                if_type: 71,
+                oper_status: 1,
+            },
+            crate::discovery::Ipv4Interface {
+                ip: std::net::Ipv4Addr::new(172, 20, 0, 1),
+                prefix_len: 16,
+                adapter_name: "{B}".to_string(),
+                friendly_name: "vEthernet (Default Switch)".to_string(),
+                if_type: 6,
+                oper_status: 1,
+            },
+        ];
+        let profiles = HashMap::from([
+            ("a".to_string(), profile("Q", "private")),
+            ("b".to_string(), profile("Hyper-V", "public")),
+        ]);
+        let effective = effective_networks(&interfaces, &profiles).unwrap();
+        assert_eq!(effective.len(), 1);
+        assert_eq!(effective[0].name, "Q");
+        assert!(classify(&effective).0);
+    }
+
+    #[test]
+    fn public_physical_wifi_blocks_even_with_private_virtual_adapter() {
+        let interfaces = vec![
+            crate::discovery::Ipv4Interface {
+                ip: std::net::Ipv4Addr::new(192, 168, 2, 43),
+                prefix_len: 24,
+                adapter_name: "{A}".to_string(),
+                friendly_name: "Wi-Fi".to_string(),
+                if_type: 71,
+                oper_status: 1,
+            },
+            crate::discovery::Ipv4Interface {
+                ip: std::net::Ipv4Addr::new(172, 20, 0, 1),
+                prefix_len: 16,
+                adapter_name: "{B}".to_string(),
+                friendly_name: "vEthernet (Default Switch)".to_string(),
+                if_type: 6,
+                oper_status: 1,
+            },
+        ];
+        let profiles = HashMap::from([
+            ("a".to_string(), profile("Q", "public")),
+            ("b".to_string(), profile("Hyper-V", "private")),
+        ]);
+        let effective = effective_networks(&interfaces, &profiles).unwrap();
+        assert_eq!(effective.len(), 1);
+        assert_eq!(effective[0].category, "public");
+        assert!(!classify(&effective).0);
+    }
 }
