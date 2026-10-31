@@ -6,6 +6,7 @@ pub mod network_profile;
 
 use std::path::PathBuf;
 use tauri::Manager;
+use tauri_plugin_shell::ShellExt;
 
 fn resolve_dist(app: &tauri::AppHandle) -> PathBuf {
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dist");
@@ -73,6 +74,17 @@ fn configure_webrtc_webview2() {
 #[cfg(not(windows))]
 fn configure_webrtc_webview2() {}
 
+#[tauri::command]
+fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    const PROJECT_URL: &str = "https://github.com/8hourseontheleft6/Filebridge-Lan";
+    if url != PROJECT_URL {
+        return Err("不允许打开这个链接".to_string());
+    }
+    app.shell()
+        .open(url, None)
+        .map_err(|error| format!("打开链接失败：{error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     configure_webrtc_webview2();
@@ -93,6 +105,7 @@ pub fn run() {
             lan_service::discovery_peers,
             lan_service::discovery_status,
             network_profile::network_profile_status,
+            open_external,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -9,6 +9,7 @@ import { isRelayHosted, parseRelayHash } from './relay/api';
 import { isTauriHost } from './lib/hub';
 
 type TransferMode = 'lan' | 'relay';
+type AppView = 'transfer' | 'settings';
 
 export interface NetworkProfile {
   name: string;
@@ -49,7 +50,7 @@ function BackToTop() {
 }
 
 export default function App() {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState<AppView>('transfer');
   const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
   const [networkChecking, setNetworkChecking] = useState(false);
   const [networkDismissed, setNetworkDismissed] = useState(false);
@@ -163,7 +164,10 @@ export default function App() {
   }
 
   function scrollToGuide() {
-    document.getElementById('transfer-guide')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setView('transfer');
+    window.setTimeout(() => {
+      document.getElementById('transfer-guide')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   }
 
   return (
@@ -177,7 +181,11 @@ export default function App() {
         </div>
 
         <nav className="side-nav" aria-label="主导航">
-          <button type="button" className="side-nav-item active">
+          <button
+            type="button"
+            className={`side-nav-item${view === 'transfer' ? ' active' : ''}`}
+            onClick={() => setView('transfer')}
+          >
             <span className="side-nav-icon">↔</span>
             传输
           </button>
@@ -186,7 +194,11 @@ export default function App() {
             使用说明
           </button>
           {activeMode === 'lan' && (
-            <button type="button" className="side-nav-item" onClick={() => setSettingsOpen(true)}>
+            <button
+              type="button"
+              className={`side-nav-item${view === 'settings' ? ' active' : ''}`}
+              onClick={() => setView('settings')}
+            >
               <span className="side-nav-icon">⚙</span>
               设置
             </button>
@@ -202,17 +214,25 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{activeMode === 'lan' ? 'LOCAL TRANSFER' : 'EXPERIMENTAL RELAY'}</p>
-            <h1>{activeMode === 'lan' ? '文件传输' : '跨网络中继'}</h1>
+            <p className="eyebrow">
+              {view === 'settings' ? 'PREFERENCES' : activeMode === 'lan' ? 'LOCAL TRANSFER' : 'EXPERIMENTAL RELAY'}
+            </p>
+            <h1>{view === 'settings' ? '设置' : activeMode === 'lan' ? '文件传输' : '跨网络中继'}</h1>
             <p className="topbar-subtitle">
-              {activeMode === 'lan'
-                ? '同一 WiFi，手机扫码即可收发文件。'
-                : '自建 HTTPS Relay，端到端加密的跨网络传输。'}
+              {view === 'settings'
+                ? '下载目录与应用信息。'
+                : activeMode === 'lan'
+                  ? '同一 WiFi，手机扫码即可收发文件。'
+                  : '自建 HTTPS Relay，端到端加密的跨网络传输。'}
             </p>
           </div>
           <div className="topbar-actions">
-            {activeMode === 'lan' ? (
-              <button type="button" className="btn btn-ghost" onClick={() => setSettingsOpen(true)}>
+            {view === 'settings' ? (
+              <button type="button" className="btn btn-ghost" onClick={() => setView('transfer')}>
+                返回传输
+              </button>
+            ) : activeMode === 'lan' ? (
+              <button type="button" className="btn btn-ghost" onClick={() => setView('settings')}>
                 <span aria-hidden>⚙</span> 设置
               </button>
             ) : (
@@ -221,7 +241,7 @@ export default function App() {
           </div>
         </header>
 
-        {!relayOnly && (
+        {view === 'transfer' && !relayOnly && (
           <div className="mode-switch" role="tablist" aria-label="传输模式">
             <button
               type="button"
@@ -237,7 +257,7 @@ export default function App() {
               role="tab"
               aria-selected={activeMode === 'relay'}
               className={`mode-tab${activeMode === 'relay' ? ' active' : ''}`}
-              onClick={() => setMode('relay')}
+              onClick={() => { setMode('relay'); setView('transfer'); }}
             >
               跨网络中继 <span className="mode-tag">实验</span>
             </button>
@@ -245,13 +265,18 @@ export default function App() {
         )}
 
         <main className="main home-main">
-          {activeMode === 'lan' ? <HttpTransfer /> : <RelayTransfer />}
+          {view === 'settings' ? (
+            <SettingsPanel onClose={() => setView('transfer')} />
+          ) : activeMode === 'lan' ? (
+            <HttpTransfer />
+          ) : (
+            <RelayTransfer />
+          )}
         </main>
 
         <footer className="app-footer">Filebridge-Lan v1.5.0 · 局域网直传 / 实验性中继</footer>
       </div>
 
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       <HostApprovalGate />
       <BackToTop />
       {isTauriHost() && networkStatus && !networkStatus.compliant && !networkDismissed && (

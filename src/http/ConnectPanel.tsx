@@ -6,6 +6,7 @@ import {
   type ConnectRequestCreated,
 } from './connect';
 import { API_BASE } from '../lib/hub';
+import { InfoTip } from '../components/InfoTip';
 
 interface ConnectPanelProps {
   onConnected: (token: string, expiresAt: number) => void;
@@ -154,14 +155,17 @@ export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelP
     <div className={`connect-request-panel${waiting ? ' waiting' : ''}`}>
       <div className="connect-request-icon" aria-hidden>↗</div>
       <div className="connect-request-copy">
-        <h3>{phase === 'waiting' ? '等待主机确认' : '请求主机允许连接'}</h3>
+        <h3>
+          {phase === 'waiting' ? '等待主机确认' : '请求主机允许连接'}
+          <InfoTip text="主机端会显示这台设备的连接请求。允许后自动进入文件列表；拒绝或 60 秒未确认时不会获得访问授权。" />
+        </h3>
         {phase === 'waiting' ? (
           <p>
-            主机端会显示 <strong>{deviceDisplayName()}</strong> 的连接请求。允许后会自动进入文件列表。
+            等待 <strong>{deviceDisplayName()}</strong> 的请求
             <span className="connect-countdown">约 {remaining} 秒</span>
           </p>
         ) : (
-          <p>不需要扫描二维码或输入配对码；主机在 Filebridge 窗口中确认后即可连接。</p>
+          <p>发起后需要主机在 Filebridge 窗口中确认。</p>
         )}
         {error && <p className="connect-error">{error}</p>}
       </div>

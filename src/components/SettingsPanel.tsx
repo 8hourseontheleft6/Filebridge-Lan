@@ -6,6 +6,8 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+const PROJECT_URL = 'https://github.com/8hourseontheleft6/Filebridge-Lan';
+
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const desktop = isTauriHost();
   const [savedDir, setSavedDir] = useState('');
@@ -13,6 +15,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   useEffect(() => {
     if (!desktop) return;
@@ -95,20 +98,26 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   }
 
+  async function openProject() {
+    if (!desktop) {
+      window.open(PROJECT_URL, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    try {
+      await invoke('open_external', { url: PROJECT_URL });
+    } catch (reason) {
+      setError(`打开链接失败：${String(reason)}`);
+    }
+  }
+
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <div className="modal-head">
-          <h2 id="settings-title">⚙ 设置</h2>
-          <button type="button" className="btn btn-small modal-close" onClick={onClose} aria-label="关闭设置">
-            ✕
-          </button>
+    <section className="settings-page" aria-labelledby="settings-title">
+      <article className="card settings-section">
+        <div className="card-head">
+          <div>
+            <h2>下载目录</h2>
+            <p>保存文件时复制到这里的目录。</p>
+          </div>
         </div>
 
         {!desktop ? (
@@ -135,7 +144,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             <p className="hint">
               手机打不开？请确认 Windows 防火墙允许 Filebridge-Lan 访问“专用网络”；详见项目 README 的“手机打不开”一节。
             </p>
-            <div className="modal-actions">
+            <div className="settings-actions">
               <button type="button" className="btn btn-small" onClick={() => void openFolder()} disabled={busy}>
                 打开文件夹
               </button>
@@ -152,40 +161,53 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
         {message && <p className="modal-message success">{message}</p>}
         {error && <p className="modal-message error">{error}</p>}
+      </article>
 
-        <div className="about-card">
-          <div className="about-head">
-            <span className="about-mark">F</span>
-            <div>
-              <strong>Filebridge-Lan</strong>
-              <span>版本 1.5.0 · 局域网文件传输</span>
-            </div>
+      <article className="card about-card settings-about">
+        <div className="about-head">
+          <span className="about-mark">F</span>
+          <div>
+            <strong>Filebridge-Lan</strong>
+            <span>版本 1.5.0</span>
           </div>
-          <p className="about-intro">
-            手机扫码即可在同一 WiFi 下收发文件。所有文件只在本机处理，不经过 FileBridge 云端。
-          </p>
-          <dl className="about-facts">
-            <div>
-              <dt>传输</dt>
-              <dd>HTTP 直传 · SHA-256 · Range 下载 · SSE 进度</dd>
-            </div>
-            <div>
-              <dt>存储</dt>
-              <dd>电脑 Downloads/Filebridge-Lan；保存时复制到下载目录</dd>
-            </div>
-            <div>
-              <dt>安全</dt>
-              <dd>局域网为 HTTP + 访问码；跨网络中继为实验性 AES-256-GCM 端到端加密</dd>
-            </div>
-          </dl>
-          <p className="about-note">
-            跨网络中继尚未完成真实 WAN 验证，请只在可信网络内使用局域网直传。
-          </p>
-          <a href="https://github.com/8hourseontheleft6/Filebridge-Lan" target="_blank" rel="noreferrer">
-            GitHub 项目与更新
-          </a>
+          <button
+            type="button"
+            className="btn btn-small"
+            aria-expanded={aboutOpen}
+            onClick={() => setAboutOpen((value) => !value)}
+          >
+            {aboutOpen ? '收起' : '详细信息'}
+          </button>
         </div>
-      </section>
-    </div>
+
+        {aboutOpen && (
+          <div className="about-details">
+            <p className="about-intro">
+              手机扫码即可在同一 WiFi 下收发文件。所有文件只在本机处理，不经过 FileBridge 云端。
+            </p>
+            <dl className="about-facts">
+              <div>
+                <dt>传输</dt>
+                <dd>HTTP 直传 · SHA-256 · Range 下载 · SSE 进度</dd>
+              </div>
+              <div>
+                <dt>存储</dt>
+                <dd>电脑 Downloads/Filebridge-Lan；保存时复制到下载目录</dd>
+              </div>
+              <div>
+                <dt>安全</dt>
+                <dd>局域网为 HTTP + 访问码；跨网络中继为实验性 AES-256-GCM 端到端加密</dd>
+              </div>
+            </dl>
+            <p className="about-note">
+              跨网络中继尚未完成真实 WAN 验证，请只在可信网络内使用局域网直传。
+            </p>
+            <button type="button" className="about-link" onClick={() => void openProject()}>
+              GitHub 项目与更新 ↗
+            </button>
+          </div>
+        )}
+      </article>
+    </section>
   );
 }

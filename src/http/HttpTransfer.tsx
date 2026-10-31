@@ -6,6 +6,7 @@ import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo } from '../lib/hu
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
+import { InfoTip } from '../components/InfoTip';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers, type NearbyPeer } from './NearbyComputers';
 
@@ -164,6 +165,7 @@ export function HttpTransfer() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const recoveringSessionRef = useRef(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -217,6 +219,49 @@ export function HttpTransfer() {
     try { window.sessionStorage.setItem(TOKEN_STORAGE_KEY, newToken); } catch { /* ignore */ }
     setToast({ text: '主机已允许连接', kind: 'success' });
   }, []);
+
+  const localHubAccess = desktop
+    || window.location.hostname === 'localhost'
+    || window.location.hostname === '127.0.0.1';
+
+  // When the LAN gate stops and restarts the Hub, the old bearer token is
+  // invalid because the Hub token table is in memory. On a local Hub the
+  // session code remains loopback-readable, so re-pair automatically instead
+  // of showing a false "authorization expired" page.
+  useEffect(() => {
+    if (!sessionReady || token || !localHubAccess) return;
+    let alive = true;
+    const recover = async () => {
+      if (recoveringSessionRef.current) return;
+      recoveringSessionRef.current = true;
+      try {
+        const response = await fetch(`${API_BASE}/api/session`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = (await response.json()) as { code?: string };
+        if (!data.code || !alive) return;
+        const paired = await pairSession(data.code);
+        if (!alive) return;
+        setSessionCode(data.code);
+        setToken(paired.token);
+        setCodeError('');
+        setOnline(true);
+        try {
+          window.sessionStorage.setItem(SESSION_STORAGE_KEY, data.code);
+          window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token);
+        } catch { /* ignore */ }
+      } catch {
+        // Hub is still stopped or restarting; the next retry will try again.
+      } finally {
+        recoveringSessionRef.current = false;
+      }
+    };
+    void recover();
+    const timer = window.setInterval(() => { void recover(); }, 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [localHubAccess, sessionReady, token]);
 
   useEffect(() => {
     if (!token || window.parent === window) return;
@@ -932,8 +977,10 @@ export function HttpTransfer() {
           <article className="card connection-card">
             <div className="card-head">
               <div>
-                <h2>连接这台电脑</h2>
-                <p>扫码通常会自动配对；失败时再手动输入 6 位配对码。</p>
+                <h2>
+                  连接这台电脑
+                  <InfoTip text="扫码通常会自动配对；失败时可手动输入 6 位配对码。也可以直接请求主机确认，无需输入配对码。" />
+                </h2>
               </div>
               <span className={`status-pill ${codeError ? 'danger' : 'warn'}`}>
                 {codeError ? '授权已过期' : '需要配对'}

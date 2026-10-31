@@ -2120,3 +2120,202 @@ input {
     width: 100%;
   }
 }
+/* Information tooltip */
+.info-tip {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border: 1px solid #c8d6e8;
+  border-radius: 50%;
+  color: #6683a6;
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.info-tip-content {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 48px));
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: #263548;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(25, 42, 70, 0.2);
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 3px);
+  transition: opacity 150ms ease, transform 150ms ease, visibility 150ms ease;
+}
+
+.info-tip:hover .info-tip-content,
+.info-tip:focus .info-tip-content,
+.info-tip:focus-visible .info-tip-content {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.info-tip:focus-visible {
+  outline: 2px solid #9dc3ff;
+  outline-offset: 2px;
+}
+
+/* Settings page (not a modal) */
+.settings-page {
+  width: 100%;
+  max-width: 100%;
+}
+
+.settings-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.settings-page-head h2 {
+  margin: 0;
+  color: #253246;
+  font-size: 1.18rem;
+}
+
+.settings-page-head p:not(.eyebrow) {
+  margin-top: 4px;
+  color: #7b8799;
+  font-size: 0.76rem;
+}
+
+.settings-section {
+  margin-bottom: 14px;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.settings-about {
+  margin: 0;
+  padding: 16px 18px;
+}
+
+.settings-about .about-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-about .about-head > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-about .about-head .btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.settings-about .about-head span:not(.about-mark) {
+  color: #8b96a8;
+  font-size: 0.7rem;
+}
+
+.about-details {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f7;
+}
+
+.about-details .about-intro,
+.about-details .about-note {
+  color: #718096;
+  font-size: 0.73rem;
+  line-height: 1.6;
+}
+
+.about-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #3476d8;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.about-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 560px) {
+  .settings-page-head {
+    align-items: flex-start;
+  }
+
+  .settings-about {
+    padding: 14px;
+  }
+
+  .settings-about .about-head {
+    flex-wrap: wrap;
+  }
+
+  .settings-about .about-head .btn {
+    margin-left: 0;
+  }
+
+  .info-tip-content {
+    left: auto;
+    right: -8px;
+    transform: translate(0, 3px);
+  }
+
+  .info-tip:hover .info-tip-content,
+  .info-tip:focus .info-tip-content,
+  .info-tip:focus-visible .info-tip-content {
+    transform: translate(0, 0);
+  }
+}
+
+/* The user asked to remove scrollbars entirely; scrolling remains available. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.file-list {
+  scrollbar-width: none;
+}
+
+.file-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
