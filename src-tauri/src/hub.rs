@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     convert::Infallible,
     io::SeekFrom,
     net::{IpAddr, SocketAddr},
@@ -24,8 +24,8 @@ use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{
-    fs::File,
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter},
+    fs::{File, OpenOptions},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter},
     sync::{broadcast, Mutex, RwLock},
 };
 use tokio_stream::wrappers::BroadcastStream;
@@ -90,6 +90,26 @@ struct HubInner {
     connect_requests: Mutex<HashMap<String, ConnectRequest>>,
     connect_failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
     connect_global: Mutex<(u32, Instant)>,
+    chunk_diags: Mutex<VecDeque<ChunkDiag>>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkDiag {
+    pub id: String,
+    pub remote_ip: String,
+    pub offset: u64,
+    pub total: u64,
+    pub content_length: Option<u64>,
+    pub transfer_encoding: Option<String>,
+    pub expect: Option<String>,
+    pub body_read: u64,
+    pub part_size: u64,
+    pub body_state: String,
+    pub last_error: Option<String>,
+    pub started_at_ms: u64,
+    pub duration_ms: u64,
+    pub status_code: Option<u16>,
 }
 
 struct ConnectRequest {
@@ -168,6 +188,38 @@ impl HubState {
             status: status.to_string(),
         });
     }
+
+    async fn diag_start(&self, diag: ChunkDiag) {
+        let mut diags = self.inner.chunk_diags.lock().await;
+        while diags.len() >= 8 {
+            diags.pop_front();
+        }
+        diags.push_back(diag);
+    }
+
+    async fn diag_update(&self, id: &str, body_read: u64, part_size: u64) {
+        let mut diags = self.inner.chunk_diags.lock().await;
+        if let Some(diag) = diags.iter_mut().rev().find(|item| item.id == id) {
+            diag.body_read = body_read;
+            diag.part_size = part_size;
+            diag.duration_ms = now_millis().saturating_sub(diag.started_at_ms);
+        }
+    }
+
+    async fn diag_finish(&self, id: &str, state: &str, status_code: Option<u16>, error: Option<String>) {
+        let mut diags = self.inner.chunk_diags.lock().await;
+        if let Some(diag) = diags.iter_mut().rev().find(|item| item.id == id) {
+            diag.body_state = state.to_string();
+            diag.status_code = status_code;
+            diag.last_error = error;
+            diag.duration_ms = now_millis().saturating_sub(diag.started_at_ms);
+        }
+    }
+
+    async fn diag_snapshot(&self, id: &str) -> Option<ChunkDiag> {
+        let diags = self.inner.chunk_diags.lock().await;
+        diags.iter().rev().find(|item| item.id == id).cloned()
+    }
 }
 
 pub async fn new(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> std::io::Result<HubState> {
@@ -229,6 +281,7 @@ pub async fn new(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> std::io::Re
             connect_requests: Mutex::new(HashMap::new()),
             connect_failures: Mutex::new(HashMap::new()),
             connect_global: Mutex::new((0, Instant::now())),
+            chunk_diags: Mutex::new(VecDeque::new()),
         }),
     })
 }
@@ -241,6 +294,11 @@ pub fn router(state: HubState) -> Router {
     let protected = Router::new()
         .route("/files", get(list_files))
         .route("/upload", post(upload))
+        .route("/upload/chunk", post(upload_chunk))
+        .route(
+            "/upload/chunk/{id}",
+            get(upload_chunk_status).delete(cancel_upload_chunk),
+        )
         .route("/events", get(sse_events))
         .route("/files/{id}", get(download).delete(delete_file))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
@@ -379,6 +437,7 @@ async fn security_guard(
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
+    let close_after_response = request.uri().path().starts_with("/api/upload/chunk");
     if let Some(origin) = origin.as_deref() {
         if origin == "null" || !allowed_origin(&state, origin) {
             return ApiError::new(StatusCode::FORBIDDEN, "Origin 不允许").into_response();
@@ -393,6 +452,12 @@ async fn security_guard(
     } else {
         next.run(request).await
     };
+
+    if close_after_response {
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    }
 
     if let Some(origin) = origin.as_deref() {
         if let Ok(value) = HeaderValue::from_str(origin) {
@@ -1036,6 +1101,220 @@ async fn store_upload(
     Ok(meta)
 }
 
+#[derive(Deserialize)]
+struct UploadChunkQuery {
+    name: Option<String>,
+    id: Option<String>,
+    offset: Option<u64>,
+    total: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct UploadChunkResponse {
+    id: String,
+    offset: u64,
+    complete: bool,
+    file: Option<Meta>,
+}
+
+fn upload_part_path(state: &HubState, id: &str) -> ApiResult<PathBuf> {
+    Uuid::parse_str(id)
+        .map_err(|_| ApiError::bad_request("upload id 不合法"))?;
+    Ok(state.inner.tmp_dir.join(format!("{id}.part")))
+}
+
+async fn hash_file(path: &Path) -> ApiResult<String> {
+    let mut reader = BufReader::with_capacity(1024 * 1024, File::open(path).await.map_err(ApiError::internal)?);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    loop {
+        let read = reader.read(&mut buffer).await.map_err(ApiError::internal)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+async fn upload_chunk(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(query): Query<UploadChunkQuery>,
+    headers: HeaderMap,
+    body: Body,
+) -> ApiResult<Json<UploadChunkResponse>> {
+    let raw_name = query
+        .name
+        .ok_or_else(|| ApiError::bad_request("缺少 name 参数"))?;
+    let id = query
+        .id
+        .ok_or_else(|| ApiError::bad_request("缺少 upload id"))?;
+    let total = query
+        .total
+        .ok_or_else(|| ApiError::bad_request("缺少 total"))?;
+    let offset = query.offset.unwrap_or(0);
+    let name = sanitize_name(&raw_name);
+    let part = upload_part_path(&state, &id)?;
+    let existing = tokio::fs::metadata(&part).await.map(|meta| meta.len()).unwrap_or(0);
+    let started_at_ms = now_millis();
+    state.diag_start(ChunkDiag {
+        id: id.clone(),
+        remote_ip: addr.ip().to_string(),
+        offset,
+        total,
+        content_length: headers
+            .get(header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse().ok()),
+        transfer_encoding: headers
+            .get(header::TRANSFER_ENCODING)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
+        expect: headers
+            .get(header::EXPECT)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
+        body_read: 0,
+        part_size: existing,
+        body_state: "reading".to_string(),
+        last_error: None,
+        started_at_ms,
+        duration_ms: 0,
+        status_code: None,
+    }).await;
+
+    if offset == 0 && existing > 0 {
+        tokio::fs::remove_file(&part).await.map_err(ApiError::internal)?;
+    } else if offset > 0 && existing != offset {
+        state.diag_finish(&id, "error", Some(409), Some(format!("offset mismatch: {existing}"))).await;
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            format!("offset mismatch: {existing}"),
+        ));
+    }
+
+    let mut options = OpenOptions::new();
+    options
+        .create(true)
+        .write(true)
+        .append(offset > 0)
+        .truncate(offset == 0);
+    let file = options.open(&part).await.map_err(ApiError::internal)?;
+    let mut writer = BufWriter::with_capacity(1024 * 1024, file);
+    let mut received = 0_u64;
+    let mut stream = body.into_data_stream();
+    let mut last_emit = Instant::now() - Duration::from_millis(250);
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                state.diag_finish(&id, "error", Some(400), Some(error.to_string())).await;
+                return Err(ApiError::bad_request(format!("读取请求体失败: {error}")));
+            }
+        };
+        writer.write_all(&chunk).await.map_err(ApiError::internal)?;
+        received += chunk.len() as u64;
+        if last_emit.elapsed() >= Duration::from_millis(200) {
+            state.diag_update(&id, received, existing + received).await;
+            state.emit_upload(&id, &name, offset + received, total, "progress");
+            last_emit = Instant::now();
+        }
+    }
+    writer.flush().await.map_err(ApiError::internal)?;
+    drop(writer);
+    state.diag_update(&id, received, existing + received).await;
+
+    let new_offset = offset + received;
+    if new_offset > total {
+        if let Ok(file) = OpenOptions::new().write(true).open(&part).await {
+            let _ = file.set_len(offset).await;
+        }
+        state.diag_finish(&id, "error", Some(400), Some("chunk exceeds total".to_string())).await;
+        return Err(ApiError::bad_request("上传分块超过总大小"));
+    }
+    if new_offset < total {
+        state.diag_finish(&id, "ended", Some(200), None).await;
+        state.emit_upload(&id, &name, new_offset, total, "progress");
+        return Ok(Json(UploadChunkResponse {
+            id,
+            offset: new_offset,
+            complete: false,
+            file: None,
+        }));
+    }
+
+    let mime = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    let sha256 = hash_file(&part).await?;
+    let final_path = state.file_path(&id);
+    tokio::fs::rename(&part, &final_path)
+        .await
+        .map_err(ApiError::internal)?;
+    let meta = Meta {
+        id: id.clone(),
+        name,
+        size: total,
+        sha256,
+        mime,
+        created_at: now_millis(),
+    };
+    let meta_bytes = serde_json::to_vec_pretty(&meta).map_err(ApiError::internal)?;
+    if let Err(error) = tokio::fs::write(state.meta_path(&id), meta_bytes).await {
+        let _ = tokio::fs::remove_file(&final_path).await;
+        return Err(ApiError::internal(error));
+    }
+    state.inner.files.write().await.insert(id.clone(), meta.clone());
+    state.diag_finish(&id, "ended", Some(200), None).await;
+    state.emit_upload(&id, &meta.name, total, total, "completed");
+    hub_log!("[hub] 分块上传完成: {} ({} bytes)", meta.name, total);
+    Ok(Json(UploadChunkResponse {
+        id,
+        offset: total,
+        complete: true,
+        file: Some(meta),
+    }))
+}
+
+async fn upload_chunk_status(
+    State(state): State<HubState>,
+    AxumPath(id): AxumPath<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    upload_part_path(&state, &id)?;
+    if let Some(meta) = state.inner.files.read().await.get(&id).cloned() {
+        return Ok(Json(serde_json::json!({
+            "id": meta.id,
+            "offset": meta.size,
+            "complete": true,
+            "file": meta
+        })));
+    }
+    let part = state.inner.tmp_dir.join(format!("{id}.part"));
+    let offset = tokio::fs::metadata(&part).await.map(|meta| meta.len()).unwrap_or(0);
+    let diagnostics = state.diag_snapshot(&id).await;
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "offset": offset,
+        "complete": false,
+        "diagnostics": diagnostics
+    })))
+}
+
+async fn cancel_upload_chunk(
+    State(state): State<HubState>,
+    AxumPath(id): AxumPath<String>,
+) -> ApiResult<StatusCode> {
+    let part = upload_part_path(&state, &id)?;
+    let _ = tokio::fs::remove_file(part).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn download(
     State(state): State<HubState>,
     AxumPath(id): AxumPath<String>,
@@ -1239,5 +1518,89 @@ mod tests {
         assert!(parse_range("bytes=4096-", 2048).is_err());
         assert!(parse_range("bytes=-0", 2048).is_err());
         assert!(parse_range("nonsense", 2048).is_err());
+    }
+
+    #[tokio::test]
+    async fn chunk_upload_reconciles_partial_offset_and_finishes_with_hash() {
+        let root = std::env::temp_dir().join(format!("filebridge-chunk-test-{}", Uuid::new_v4()));
+        let dist = root.join("dist");
+        let state = new(0, root.clone(), dist).await.expect("hub state");
+        let source = vec![7_u8; 5 * 1024 * 1024];
+        let total = source.len() as u64;
+        let id = Uuid::new_v4().to_string();
+        let name = "resume-test.bin".to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+
+        let first = upload_chunk(
+            State(state.clone()),
+            ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))),
+            Query(UploadChunkQuery {
+                name: Some(name.clone()),
+                id: Some(id.clone()),
+                offset: Some(0),
+                total: Some(total),
+            }),
+            headers.clone(),
+            Body::from(source[..2 * 1024 * 1024].to_vec()),
+        ).await.expect("first chunk").0;
+        assert_eq!(first.offset, 2 * 1024 * 1024);
+        assert!(!first.complete);
+
+        let partial = upload_chunk(
+            State(state.clone()),
+            ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))),
+            Query(UploadChunkQuery {
+                name: Some(name.clone()),
+                id: Some(id.clone()),
+                offset: Some(2 * 1024 * 1024),
+                total: Some(total),
+            }),
+            headers.clone(),
+            Body::from(source[2 * 1024 * 1024..3 * 1024 * 1024].to_vec()),
+        ).await.expect("partial chunk").0;
+        assert_eq!(partial.offset, 3 * 1024 * 1024);
+        assert!(!partial.complete);
+
+        let status = upload_chunk_status(State(state.clone()), AxumPath(id.clone())).await.expect("status").0;
+        let confirmed = status["offset"].as_u64().expect("offset");
+        assert_eq!(confirmed, 3 * 1024 * 1024);
+        assert_eq!(status["complete"], false);
+
+        let wrong = upload_chunk(
+            State(state.clone()),
+            ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))),
+            Query(UploadChunkQuery {
+                name: Some(name.clone()),
+                id: Some(id.clone()),
+                offset: Some(confirmed - 1),
+                total: Some(total),
+            }),
+            headers.clone(),
+            Body::empty(),
+        ).await;
+        assert!(wrong.is_err(), "wrong offset must be rejected");
+        assert_eq!(wrong.err().expect("error").status, StatusCode::CONFLICT);
+
+        let rest = upload_chunk(
+            State(state.clone()),
+            ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))),
+            Query(UploadChunkQuery {
+                name: Some(name.clone()),
+                id: Some(id.clone()),
+                offset: Some(confirmed),
+                total: Some(total),
+            }),
+            headers,
+            Body::from(source[confirmed as usize..].to_vec()),
+        ).await.expect("resume chunk").0;
+        assert!(rest.complete);
+        assert_eq!(rest.file.as_ref().expect("file").size, total);
+
+        let stored = tokio::fs::read(state.file_path(&id)).await.expect("stored file");
+        assert_eq!(stored.len() as u64, total);
+        let expected = format!("{:x}", Sha256::digest(&source));
+        assert_eq!(rest.file.as_ref().expect("file").sha256, expected);
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 }

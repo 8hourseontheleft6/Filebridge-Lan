@@ -1,6 +1,6 @@
 {
   "name": "filebridge-lan",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "private": true,
   "license": "MIT",
   "author": "Filebridge-Lan contributors",
@@ -9,7 +9,9 @@
     "dev": "vite",
     "dev:all": "node server/start.js",
     "hub": "node server/hub.mjs",
-    "test:hub": "node scripts/hub-smoke.mjs",
+    "test:hub": "node scripts/hub-smoke.mjs && node scripts/chunk-resume-smoke.mjs",
+    "test:resume": "node scripts/chunk-resume-smoke.mjs",
+    "test:offsets": "node --experimental-strip-types --test src/lib/uploadOffsets.test.mjs",
     "bench:upload": "node scripts/bench-upload.mjs",
     "check": "tsc --noEmit",
     "build": "tsc && vite build",

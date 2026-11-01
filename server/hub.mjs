@@ -611,6 +611,159 @@ async function handleUpload(req, res, url) {
   sendJson(res, 201, meta);
 }
 
+async function handleUploadChunk(req, res, url) {
+  const rawName = url.searchParams.get('name');
+  const id = url.searchParams.get('id');
+  const total = Number(url.searchParams.get('total') || 0);
+  const offset = Number(url.searchParams.get('offset') || 0);
+  if (!rawName) {
+    sendJson(res, 400, { error: '缺少 name 参数' });
+    return;
+  }
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
+    sendJson(res, 400, { error: 'upload id 不合法' });
+    return;
+  }
+  if (!Number.isSafeInteger(total) || total < 0 || !Number.isSafeInteger(offset) || offset < 0 || offset > total) {
+    sendJson(res, 400, { error: 'offset/total 不合法' });
+    return;
+  }
+
+  const name = sanitizeName(rawName);
+  const part = path.join(TMP_DIR, `${id}.part`);
+  let existing = 0;
+  try { existing = (await fsp.stat(part)).size; } catch { /* missing */ }
+  if (offset === 0 && existing > 0) {
+    await fsp.unlink(part).catch(() => {});
+    existing = 0;
+  }
+  if (offset > 0 && existing !== offset) {
+    sendJson(res, 409, { error: `offset mismatch: ${existing}`, offset: existing });
+    return;
+  }
+
+  const ws = fs.createWriteStream(part, { flags: offset === 0 ? 'w' : 'a' });
+  let received = 0;
+  let lastEmit = 0;
+  const broadcast = (status) => {
+    broadcastUpload({ id, name, loaded: offset + received, total, status });
+  };
+
+  req.on('data', (chunk) => {
+    received += chunk.length;
+    const now = Date.now();
+    if (now - lastEmit >= 200) {
+      lastEmit = now;
+      broadcast('progress');
+    }
+  });
+  req.on('aborted', () => {
+    ws.destroy();
+    broadcast('failed');
+  });
+  req.on('error', () => {
+    ws.destroy();
+    broadcast('failed');
+  });
+  req.pipe(ws);
+
+  try {
+    await new Promise((resolve, reject) => {
+      ws.on('finish', resolve);
+      ws.on('close', resolve);
+      ws.on('error', reject);
+    });
+  } catch (error) {
+    ws.destroy();
+    broadcast('failed');
+    sendJson(res, 500, { error: `写入失败: ${error.message}` });
+    return;
+  }
+
+  const newOffset = offset + received;
+  if (newOffset > total) {
+    broadcast('failed');
+    sendJson(res, 400, { error: '上传分块超过总大小' });
+    return;
+  }
+  if (newOffset < total) {
+    broadcast('progress');
+    sendJson(res, 200, { id, offset: newOffset, complete: false });
+    return;
+  }
+
+  const finalPath = filePath(id);
+  try {
+    await fsp.rename(part, finalPath);
+  } catch (error) {
+    broadcast('failed');
+    sendJson(res, 500, { error: `保存失败: ${error.message}` });
+    return;
+  }
+
+  const hash = crypto.createHash('sha256');
+  try {
+    await new Promise((resolve, reject) => {
+      fs.createReadStream(finalPath)
+        .on('data', (chunk) => hash.update(chunk))
+        .on('end', resolve)
+        .on('error', reject);
+    });
+  } catch (error) {
+    await fsp.unlink(finalPath).catch(() => {});
+    broadcast('failed');
+    sendJson(res, 500, { error: `读取文件失败: ${error.message}` });
+    return;
+  }
+
+  const meta = {
+    id,
+    name,
+    size: total,
+    sha256: hash.digest('hex'),
+    mime: String(req.headers['content-type'] || 'application/octet-stream').split(';')[0],
+    createdAt: Date.now(),
+  };
+  try {
+    await fsp.writeFile(metaPath(id), JSON.stringify(meta, null, 2));
+  } catch (error) {
+    await fsp.unlink(finalPath).catch(() => {});
+    broadcast('failed');
+    sendJson(res, 500, { error: `写入元数据失败: ${error.message}` });
+    return;
+  }
+  metaMap.set(id, meta);
+  broadcast('completed');
+  log(`分块上传完成: ${name} (${total} bytes)`);
+  sendJson(res, 201, { id, offset: total, complete: true, file: meta });
+}
+
+async function handleChunkStatus(res, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    sendJson(res, 400, { error: 'upload id 不合法' });
+    return;
+  }
+  const complete = metaMap.get(id);
+  if (complete) {
+    sendJson(res, 200, { id, offset: complete.size, complete: true, file: complete });
+    return;
+  }
+  const part = path.join(TMP_DIR, `${id}.part`);
+  let offset = 0;
+  try { offset = (await fsp.stat(part)).size; } catch { /* not started */ }
+  sendJson(res, 200, { id, offset, complete: false });
+}
+
+async function handleChunkCancel(res, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    sendJson(res, 400, { error: 'upload id 不合法' });
+    return;
+  }
+  await fsp.unlink(path.join(TMP_DIR, `${id}.part`)).catch(() => {});
+  res.writeHead(204);
+  res.end();
+}
+
 async function handleDownload(req, res, id) {
   const meta = metaMap.get(id);
   if (!meta) {
@@ -873,6 +1026,27 @@ async function route(req, res) {
     if (!requireToken(req, res, url)) return;
     const files = Array.from(metaMap.values()).sort((a, b) => b.createdAt - a.createdAt);
     sendJson(res, 200, files);
+    return;
+  }
+
+  if (pathname === '/api/upload/chunk' && req.method === 'POST') {
+    if (!requireToken(req, res, url)) return;
+    await handleUploadChunk(req, res, url);
+    return;
+  }
+
+  const chunkMatch = /^\/api\/upload\/chunk\/([0-9a-f-]+)$/i.exec(pathname);
+  if (chunkMatch) {
+    if (!requireToken(req, res, url)) return;
+    if (req.method === 'GET') {
+      await handleChunkStatus(res, chunkMatch[1]);
+      return;
+    }
+    if (req.method === 'DELETE') {
+      await handleChunkCancel(res, chunkMatch[1]);
+      return;
+    }
+    sendJson(res, 405, { error: 'Method Not Allowed' });
     return;
   }
 
