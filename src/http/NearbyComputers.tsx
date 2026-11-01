@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauriHost } from '../lib/hub';
+import { Icon } from '../components/Icon';
 
 export interface NearbyPeer {
   id: string;
@@ -109,7 +110,7 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
         <div className="nearby-list">
           {peers.map((peer) => (
             <div className="nearby-row" key={peer.id}>
-              <span className="nearby-icon" aria-hidden>▣</span>
+              <span className="nearby-icon" aria-hidden><Icon name="device" size={16} /></span>
               <div className="nearby-main">
                 <strong>{peer.name}</strong>
                 <span>{peer.ip}:{peer.port} · v{peer.version}</span>

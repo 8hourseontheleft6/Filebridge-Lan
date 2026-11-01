@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { NetworkProfileStatus } from '../App';
+import { Icon } from './Icon';
 
 interface NetworkWarningProps {
   status: NetworkProfileStatus;
@@ -28,8 +29,7 @@ export function NetworkWarning({ status, retrying, onRetry, onClose }: NetworkWa
         aria-modal="true"
         aria-labelledby="network-warning-title"
       >
-        <div className="network-warning-mark" aria-hidden>!</div>
-        <p className="approval-eyebrow">网络检测</p>
+        <div className="network-warning-mark" aria-hidden><Icon name="alert" size={20} /></div>
         <h2 id="network-warning-title">
           {status.checked ? '当前网络类型需要调整' : '无法检测网络类型'}
         </h2>

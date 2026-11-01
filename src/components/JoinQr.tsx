@@ -19,7 +19,7 @@ export function JoinQr({
   const shown = displayUrl || url;
 
   return (
-    <div className="qr-card" aria-label={title}>
+    <div className="qr-card" role="group" aria-label={title}>
       <div className="qr-code">
         <QRCodeSVG
           value={url}

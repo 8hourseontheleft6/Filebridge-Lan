@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from './Icon';
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -30,13 +31,14 @@ async function copyText(text: string): Promise<boolean> {
 export function CopyButton({
   text,
   label = '复制',
-  className = 'btn btn-small',
+  className = 'btn btn-small btn-ghost',
 }: {
   text: string;
   label?: string;
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => () => {
@@ -48,14 +50,20 @@ export function CopyButton({
       type="button"
       className={className}
       onClick={async () => {
-        if (!(await copyText(text))) return;
+        setFailed(false);
+        if (!(await copyText(text))) {
+          setFailed(true);
+          if (timerRef.current) window.clearTimeout(timerRef.current);
+          timerRef.current = window.setTimeout(() => setFailed(false), 2000);
+          return;
+        }
         setCopied(true);
         if (timerRef.current) window.clearTimeout(timerRef.current);
         timerRef.current = window.setTimeout(() => setCopied(false), 1600);
       }}
-      title={copied ? '已复制' : `复制：${text}`}
+      title={failed ? '复制失败，请手动选择链接' : copied ? '已复制' : `复制：${text}`}
     >
-      {copied ? '✅ 已复制' : label}
+      {failed ? '复制失败' : copied ? <><Icon name="check" size={13} /> 已复制</> : label}
     </button>
   );
 }

@@ -5,6 +5,7 @@ import { HostApprovalGate } from './http/HostApprovalGate';
 import { RelayTransfer } from './relay/RelayTransfer';
 import { SettingsPanel } from './components/SettingsPanel';
 import { NetworkWarning } from './components/NetworkWarning';
+import { Icon } from './components/Icon';
 import { isRelayHosted, parseRelayHash } from './relay/api';
 import { isTauriHost } from './lib/hub';
 import type { LanServiceStatus } from './lib/hub';
@@ -51,7 +52,9 @@ function BackToTop() {
 }
 
 export default function App() {
+  const desktop = isTauriHost();
   const [view, setView] = useState<AppView>('transfer');
+  const [helpOpen, setHelpOpen] = useState(false);
   const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
   const [lanServiceStatus, setLanServiceStatus] = useState<LanServiceStatus | null>(null);
   const [networkChecking, setNetworkChecking] = useState(false);
@@ -165,18 +168,20 @@ export default function App() {
         <main className="receiver-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.5.3 · 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.4 · 实验性中继</footer>
         <BackToTop />
       </div>
     );
   }
 
-  function scrollToGuide() {
-    setView('transfer');
-    window.setTimeout(() => {
-      document.getElementById('transfer-guide')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 0);
-  }
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHelpOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [helpOpen]);
 
   return (
     <div className="app app-shell">
@@ -194,12 +199,12 @@ export default function App() {
             className={`side-nav-item${view === 'transfer' ? ' active' : ''}`}
             onClick={() => setView('transfer')}
           >
-            <span className="side-nav-icon">↔</span>
-            传输
+            <span className="side-nav-icon"><Icon name="transfer" size={17} /></span>
+            <span className="side-nav-label">传输</span>
           </button>
-          <button type="button" className="side-nav-item" onClick={scrollToGuide}>
-            <span className="side-nav-icon">?</span>
-            使用说明
+          <button type="button" className="side-nav-item" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
+            <span className="side-nav-icon"><Icon name="help" size={17} /></span>
+            <span className="side-nav-label">使用说明</span>
           </button>
           {activeMode === 'lan' && (
             <button
@@ -207,14 +212,14 @@ export default function App() {
               className={`side-nav-item${view === 'settings' ? ' active' : ''}`}
               onClick={() => setView('settings')}
             >
-              <span className="side-nav-icon">⚙</span>
-              设置
+              <span className="side-nav-icon"><Icon name="settings" size={17} /></span>
+              <span className="side-nav-label">设置</span>
             </button>
           )}
         </nav>
 
         <div className="sidebar-foot">
-          <span className="sidebar-version">v1.5.3</span>
+          <span className="sidebar-version">v1.5.4</span>
           <span className="sidebar-mode">{activeMode === 'lan' ? '局域网直传' : '跨网络中继 · 实验'}</span>
         </div>
       </aside>
@@ -222,15 +227,14 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              {view === 'settings' ? 'PREFERENCES' : activeMode === 'lan' ? 'LOCAL TRANSFER' : 'EXPERIMENTAL RELAY'}
-            </p>
             <h1>{view === 'settings' ? '设置' : activeMode === 'lan' ? '文件传输' : '跨网络中继'}</h1>
             <p className="topbar-subtitle">
               {view === 'settings'
                 ? '下载目录与应用信息。'
                 : activeMode === 'lan'
-                  ? '同一 WiFi，手机扫码即可收发文件。'
+                  ? desktop
+                    ? '同一 WiFi，手机扫码即可收发文件。'
+                    : '在同一 WiFi 下，与电脑互传文件。'
                   : '自建 HTTPS Relay，端到端加密的跨网络传输。'}
             </p>
           </div>
@@ -241,7 +245,7 @@ export default function App() {
               </button>
             ) : activeMode === 'lan' ? (
               <button type="button" className="btn btn-ghost" onClick={() => setView('settings')}>
-                <span aria-hidden>⚙</span> 设置
+                <Icon name="settings" size={15} /> 设置
               </button>
             ) : (
               <span className="status-pill warn">实验性</span>
@@ -250,11 +254,10 @@ export default function App() {
         </header>
 
         {view === 'transfer' && !relayOnly && (
-          <div className="mode-switch" role="tablist" aria-label="传输模式">
+          <div className="mode-switch" role="group" aria-label="传输模式">
             <button
               type="button"
-              role="tab"
-              aria-selected={activeMode === 'lan'}
+              aria-pressed={activeMode === 'lan'}
               className={`mode-tab${activeMode === 'lan' ? ' active' : ''}`}
               onClick={() => setMode('lan')}
             >
@@ -262,8 +265,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={activeMode === 'relay'}
+              aria-pressed={activeMode === 'relay'}
               className={`mode-tab${activeMode === 'relay' ? ' active' : ''}`}
               onClick={() => { setMode('relay'); setView('transfer'); }}
             >
@@ -285,8 +287,53 @@ export default function App() {
           )}
         </main>
 
-        <footer className="app-footer">Filebridge-Lan v1.5.3 · 局域网直传 / 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.4 · 局域网直传 / 实验性中继</footer>
       </div>
+
+      {helpOpen && (
+        <div
+          className="help-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setHelpOpen(false);
+          }}
+        >
+          <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+            <div className="help-head">
+              <div>
+                <h2 id="help-title">使用说明</h2>
+                <p>文件列表、扫码连接、传输进度分别负责什么。</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-icon help-close"
+                aria-label="关闭使用说明"
+                autoFocus
+                onClick={() => setHelpOpen(false)}
+              >
+                <Icon name="close" size={15} />
+              </button>
+            </div>
+            <div className="guide-grid">
+              <div>
+                <h3>文件列表</h3>
+                <p>在这里选择、拖入、勾选批量保存或删除文件。手机上传的文件会先写入电脑的数据目录。</p>
+              </div>
+              <div>
+                <h3>扫码连接</h3>
+                <p>同一 WiFi 下让手机扫码，配对码会自动带入；扫码失败时可展开手动连接。</p>
+              </div>
+              <div>
+                <h3>进度与速率</h3>
+                <p>上传、接收和保存时的实时进度、速度与剩余时间都会显示在传输进度卡中。</p>
+              </div>
+            </div>
+            <p className="security-note">
+              存储位置：电脑的 <code>Downloads/Filebridge-Lan</code>；点击保存后复制到下载目录。
+              局域网直传目前是 HTTP 明文，只有访问码保护，不做内容加密；跨网络中继才是 AES-256-GCM 实验性端到端加密。
+            </p>
+          </section>
+        </div>
+      )}
 
       <HostApprovalGate />
       <BackToTop />

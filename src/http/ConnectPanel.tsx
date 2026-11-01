@@ -7,6 +7,7 @@ import {
 } from './connect';
 import { API_BASE } from '../lib/hub';
 import { InfoTip } from '../components/InfoTip';
+import { Icon } from '../components/Icon';
 
 interface ConnectPanelProps {
   onConnected: (token: string, expiresAt: number) => void;
@@ -153,7 +154,7 @@ export function ConnectPanel({ onConnected, autoConnect = false }: ConnectPanelP
 
   return (
     <div className={`connect-request-panel${waiting ? ' waiting' : ''}`}>
-      <div className="connect-request-icon" aria-hidden>↗</div>
+      <div className="connect-request-icon" aria-hidden><Icon name="arrow-up-right" size={16} /></div>
       <div className="connect-request-copy">
         <h3>
           {phase === 'waiting' ? '等待主机确认' : '请求主机允许连接'}

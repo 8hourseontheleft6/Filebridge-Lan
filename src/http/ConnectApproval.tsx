@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { PendingConnectRequest } from './connect';
+import { Icon } from '../components/Icon';
 
 interface ConnectApprovalProps {
   request: PendingConnectRequest;
@@ -56,8 +57,7 @@ export function ConnectApproval({ request, busy, onDecision }: ConnectApprovalPr
         aria-labelledby="approval-title"
         onKeyDown={trapFocus}
       >
-        <div className="approval-mark" aria-hidden>↗</div>
-        <p className="approval-eyebrow">连接请求</p>
+        <div className="approval-mark" aria-hidden><Icon name="device" size={20} /></div>
         <h2 id="approval-title">允许设备访问吗？</h2>
         <p className="approval-device">{request.name}</p>
         <p className="approval-meta">
