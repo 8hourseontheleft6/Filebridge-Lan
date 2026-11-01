@@ -15,7 +15,7 @@
 - **两种模式**：局域网直传默认选中；跨网络中继（实验）单独入口
 - **电脑互联**：局域网自动发现附近电脑；主机确认后连接。另一台电脑也可直接用浏览器发起请求，无需安装
 - **网络类型门禁**：只有 Private/Domain 才启动 UDP 发现和局域网 Hub；公用网络弹窗提示修改，且关闭弹窗不能绕过门禁
-- **文件管理**：多选、全选、批量保存/下载、批量删除；文件列表限高并带滚动条
+- **文件管理**：多选、全选、批量保存/下载、批量删除；文件列表限高并带滚动条\n- **本地工作台界面**：Local Workbench 侧栏与任务卡片；Cambria 品牌/标题，中文和功能控件使用 Microsoft YaHei / Inter\n- **Safari 大文件续传**：iPhone Safari 使用 Fetch 2MB 分块；失败后先查询服务端真实 offset 再继续\n- **上传诊断**：默认折叠的诊断面板显示浏览器发送、服务端落盘和确认 offset，不包含 token 或本机路径
 - **传输仪表盘**：上传/下载当前速度、峰值、累计传输量和实时曲线
 - **配对码 + token**：6 位码只用于配对；配对后签发 12 小时有效的随机 token；配对码放在手动连接/详情折叠区，二维码链接可一键显示/隐藏 code
 - **大文件**：纯 HTTP，不使用 WebRTC
@@ -23,16 +23,28 @@
 - **跨网络加密中继**：实验性；文件在本机 AES-GCM 加密后上传，中继只保存密文
 - **无外网依赖（局域网模式）**：运行时只在局域网内通信
 
+
+## 界面预览
+
+![桌面主界面](docs/screenshots/desktop-1440.png)
+
+![桌面 900px](docs/screenshots/desktop-900.png)\n\n![手机上传页](docs/screenshots/mobile-390.png)\n\n![设置页](docs/screenshots/settings-1440.png)
+
+![上传诊断与续传](docs/screenshots/upload-recovery.png)
+
+![使用说明对话框](docs/screenshots/guide-dialog.png)
+
+界面使用 Local Workbench 方向：固定侧栏、任务优先的卡片、Cambria 品牌与重点标题、Microsoft YaHei 中文和实际加载的 Inter 功能文本。上传诊断默认折叠；Safari 照片上传支持连续选择后统一上传。
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.5.3_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.5.4_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.5.3_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.5.4_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
 - 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080 + UDP 42081
@@ -40,7 +52,7 @@ npm run tauri build
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42080 + UDP 42081）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.5.3.md](docs/RELEASE-1.5.3.md)
+版本说明：[docs/RELEASE-1.5.4.md](docs/RELEASE-1.5.4.md)
 
 > 从旧版本升级：首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
@@ -65,7 +77,7 @@ BRIDGE_PUBLIC_URL=http://127.0.0.1:43000 npm run bridge
 
 ## 使用
 
-1. 电脑打开 Filebridge-Lan，首页显示 **6 位配对码** 和二维码
+1. 电脑打开 Filebridge-Lan，首页显示 **6 位配对码** 和二维码；设置与使用说明在工作区内打开
 2. 手机扫码打开 `http://<电脑IP>:42080/#code=...`，配对码自动带入
 3. 手动输入网址时，手机页面会要求输入电脑上显示的 6 位配对码
 4. 手机或电脑选择文件上传；文件出现在列表里
