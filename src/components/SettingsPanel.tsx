@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauriHost } from '../lib/hub';
 import { InfoTip } from './InfoTip';
+import { Icon } from './Icon';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -159,8 +160,16 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           </>
         )}
 
-        {message && <p className="modal-message success">{message}</p>}
-        {error && <p className="modal-message error">{error}</p>}
+        {message && (
+          <p className="modal-message success" role="status">
+            <Icon name="check" size={14} /> {message}
+          </p>
+        )}
+        {error && (
+          <p className="modal-message error" role="alert">
+            <Icon name="alert" size={14} /> {error}
+          </p>
+        )}
       </article>
 
       <article className="card about-card settings-about">
