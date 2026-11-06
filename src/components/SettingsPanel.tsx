@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauriHost } from '../lib/hub';
+import { InfoTip } from './InfoTip';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -116,7 +117,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         <div className="card-head">
           <div>
             <h2>下载目录</h2>
-            <p>保存文件时复制到这里的目录。</p>
+            <p>选择保存文件时使用的电脑目录。</p>
           </div>
         </div>
 
@@ -140,9 +141,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 选择…
               </button>
             </div>
-            <p className="hint">下载文件会复制到这里；同名且大小相同的文件不会重复下载。</p>
-            <p className="hint">
-              手机打不开？请确认 Windows 防火墙允许 Filebridge-Lan 访问“专用网络”；详见项目 README 的“手机打不开”一节。
+            <p className="hint settings-note">
+              保存时复制到指定目录
+              <InfoTip text="同名且大小相同的文件不会重复下载。手机打不开时，请确认 Windows 防火墙允许 Filebridge-Lan 访问专用网络；详见项目 README 的“手机打不开”一节。" />
             </p>
             <div className="settings-actions">
               <button type="button" className="btn btn-small" onClick={() => void openFolder()} disabled={busy}>
@@ -155,7 +156,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 {busy ? '处理中…' : '保存'}
               </button>
             </div>
-            {savedDir && <p className="hint">当前：{savedDir}</p>}
           </>
         )}
 

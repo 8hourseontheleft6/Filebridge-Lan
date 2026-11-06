@@ -2793,3 +2793,77 @@ input {
   color: #34435a;
   overflow-wrap: anywhere;
 }
+/* Settings workspace: reduce duplicated guidance and open up vertical rhythm. */
+.topbar h1.settings-title {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+}
+
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-section {
+  margin: 0;
+  padding: 22px;
+}
+
+.settings-section .card-head {
+  margin-bottom: 18px;
+}
+
+.settings-section .card-head h2 {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+
+.settings-section .card-head p {
+  margin-top: 5px;
+  font-size: 0.82rem;
+}
+
+.settings-section .field-label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 0.78rem;
+}
+
+.settings-section .path-row {
+  gap: 10px;
+}
+
+.settings-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 0.78rem;
+}
+
+.settings-actions {
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.settings-about {
+  margin: 0;
+  padding: 20px;
+  border-top: 0;
+}
+
+@media (max-width: 560px) {
+  .topbar h1.settings-title {
+    font-size: 1.55rem;
+  }
+
+  .settings-section {
+    padding: 18px;
+  }
+
+  .settings-page {
+    gap: 16px;
+  }
+}

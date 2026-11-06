@@ -227,7 +227,7 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <div>
-            <h1>{view === 'settings' ? '设置' : activeMode === 'lan' ? '文件传输' : '跨网络中继'}</h1>
+            <h1 className={view === 'settings' ? 'settings-title' : undefined}>{view === 'settings' ? '设置' : activeMode === 'lan' ? '文件传输' : '跨网络中继'}</h1>
             <p className="topbar-subtitle">
               {view === 'settings'
                 ? '下载目录与应用信息。'
