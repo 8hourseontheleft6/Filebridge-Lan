@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.5.4 - Draft
+## 1.5.5 - Draft
+
+- 修复 Hub API 与桌面程序版本不一致：Rust 使用 `CARGO_PKG_VERSION`，Node Hub/Bridge 从 `package.json` 读取
+- 新增版本一致性 CI 检查，覆盖配置、锁文件和 Node Hub/Bridge 实际版本接口
+- 主机切 Public 或关闭后，远端在数秒内显示主机不可用，不再继续显示绿色在线状态
+- 远端离线时保留最后文件列表并标记为离线缓存，禁用上传、下载、删除和批量操作
+- EventSource 断开增加短暂重试窗口，恢复 Private 后自动重新探测、恢复在线并刷新列表
+- 主机本机暂停文案与远端主机不可达文案明确区分；Public 门禁不变
+
+## 1.5.4 - 2026-11-01 (Preview)
 
 - iPhone Safari 大文件上传改为 Fetch + Blob 2MB 分块；收到响应头后取消响应体，改用服务端真实 offset 继续
 - 续传只使用服务端确认 offset；支持向前/向后校正、失败续传和批量队列
