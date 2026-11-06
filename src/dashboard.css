@@ -2918,3 +2918,66 @@ input {
     animation: none;
   }
 }
+/* Remote host offline: surface the loss before the user tries an operation. */
+.remote-offline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+
+.remote-offline strong {
+  display: block;
+  color: #8f2529;
+  font-size: 0.84rem;
+}
+
+.remote-offline p {
+  margin-top: 3px;
+  color: #6d4a4c;
+}
+
+.remote-offline .btn {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.offline-cache-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #fff6e6;
+  color: var(--warning);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.drop-zone.is-disabled {
+  border-color: #dfe5ee;
+  background: #f5f7fa;
+  color: #8792a3;
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.drop-zone.is-disabled:hover {
+  border-color: #dfe5ee;
+  background: #f5f7fa;
+}
+
+.btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  .remote-offline {
+    flex-direction: column;
+    gap: 8px;
+  }
+}

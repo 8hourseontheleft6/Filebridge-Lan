@@ -412,7 +412,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
   const refresh = useCallback(async () => {
     if (!token || !sessionReady) return;
-    try {
+    const probe = async (): Promise<boolean> => {
       const response = await fetch(`${API_BASE}/api/files`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
@@ -421,7 +421,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         setToken('');
         setCodeError('授权已过期，请重新配对');
         try { window.sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignore */ }
-        return;
+        return false;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as HubFile[];
@@ -431,8 +431,19 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         [...prev].filter((id) => nextFiles.some((file) => file.id === id))
       ));
       setOnline(true);
+      return true;
+    };
+    try {
+      await probe();
     } catch {
-      setOnline(false);
+      // One missed poll is usually a transient network blip. Retry once before
+      // surfacing the host as offline, but keep the last file list in place.
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      try {
+        await probe();
+      } catch {
+        setOnline(false);
+      }
     }
   }, [sessionReady, token]);
 
@@ -441,6 +452,17 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     const source = new EventSource(
       `${API_BASE}/api/events?token=${encodeURIComponent(token)}`
     );
+    let errorTimer = 0;
+    source.onopen = () => {
+      window.clearTimeout(errorTimer);
+      setOnline(true);
+    };
+    source.onerror = () => {
+      // EventSource reconnects automatically. Give it a short grace period so a
+      // transient Wi-Fi hiccup does not immediately replace the file list.
+      window.clearTimeout(errorTimer);
+      errorTimer = window.setTimeout(() => setOnline(false), 1500);
+    };
     const onUpload = (event: Event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data) as UploadEventPayload;
@@ -469,6 +491,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     };
     source.addEventListener('upload', onUpload);
     return () => {
+      window.clearTimeout(errorTimer);
       source.removeEventListener('upload', onUpload);
       source.close();
     };
@@ -995,22 +1018,30 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     const selected = Array.from(fileList);
     if (selected.length === 0) return;
     if (online === false) {
-      setError('HTTP Hub 未启动，请先确认电脑端服务在线');
+      setError(desktop
+        ? 'HTTP Hub 未启动，请先确认电脑端服务在线'
+        : '主机服务不可用，主机可能已切换到公用网络或关闭了应用');
       return;
     }
     await uploadBatch(selected);
-  }, [online, uploadBatch]);
+  }, [desktop, online, uploadBatch]);
 
   const selectFiles = useCallback((fileList: FileList | File[]) => {
     const selected = Array.from(fileList);
     if (selected.length === 0) return;
+    if (online === false) {
+      setError(desktop
+        ? 'HTTP Hub 未启动，请先确认电脑端服务在线'
+        : '主机服务不可用，主机可能已切换到公用网络或关闭了应用');
+      return;
+    }
     if (needsPicker && (selected.length === 1 || pendingFiles.length > 0)) {
       setPendingFiles((prev) => [...prev, ...selected]);
       setError('');
       return;
     }
     void handleFiles(selected);
-  }, [handleFiles, needsPicker, pendingFiles.length]);
+  }, [desktop, handleFiles, needsPicker, online, pendingFiles.length]);
 
   const uploadPending = useCallback(() => {
     if (pendingFiles.length === 0) return;
@@ -1573,7 +1604,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     </details>
   );
 
-  const serviceNotice = online === false && !publicPaused ? (
+  const serviceNotice = desktop && online === false && !publicPaused ? (
     <div className="notice notice-bad">
       <p>
         {desktop
@@ -1664,6 +1695,25 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
   return (
     <div className={`lan-dashboard${desktop ? ' has-nearby' : ''}`}>
+      {!desktop && online === false && (
+        <div className="notice notice-bad remote-offline" role="alert">
+          <div>
+            <strong>主机服务不可用</strong>
+            <p>主机可能已切换到公用网络或关闭了应用。当前文件列表是离线缓存，可能已过期。</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() => {
+              setOnline(null);
+              void loadInfo();
+              void refresh();
+            }}
+          >
+            重新连接
+          </button>
+        </div>
+      )}
       <div className="dashboard-grid">
         <article className="card files-card">
           <div className="card-head">
@@ -1674,7 +1724,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             <div className="card-actions">
               <span className="count-badge">{files.length}</span>
               {files.length > 0 && (
-                <button type="button" className="btn btn-ghost btn-small" onClick={toggleSelectAll}>
+                <button type="button" className="btn btn-ghost btn-small" onClick={toggleSelectAll} disabled={online === false}>
                   {allSelected ? '取消全选' : '全选'}
                 </button>
               )}
@@ -1683,7 +1733,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   type="button"
                   className="btn btn-primary btn-small"
                   onClick={() => void saveSelected()}
-                  disabled={batchSaving || batchDeleting || savingId !== null}
+                  disabled={online === false || batchSaving || batchDeleting || savingId !== null}
                 >
                   {desktop ? '保存所选' : '下载所选'} ({selectedIds.size})
                 </button>
@@ -1693,7 +1743,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   type="button"
                   className="btn btn-danger btn-small"
                   onClick={() => void deleteSelected()}
-                  disabled={batchDeleting || batchSaving || savingId !== null}
+                  disabled={online === false || batchDeleting || batchSaving || savingId !== null}
                 >
                   {batchDeleting ? '删除中…' : `删除所选 (${selectedIds.size})`}
                 </button>
@@ -1709,32 +1759,46 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             </div>
           </div>
 
+          {online === false && (
+            <p className="offline-cache-note" role="status">
+              <Icon name="alert" size={14} /> 离线缓存，可能已过期
+            </p>
+          )}
+
           <div
-            className={`drop-zone${dragging ? ' dragging' : ''}`}
+            className={`drop-zone${dragging ? ' dragging' : ''}${online === false ? ' is-disabled' : ''}`}
             onDrop={(e) => {
               e.preventDefault();
               setDragging(false);
+              if (online === false) return;
               if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
             }}
             onDragEnter={(e) => {
               e.preventDefault();
+              if (online === false) return;
               setDragging(true);
             }}
             onDragOver={(e) => {
               e.preventDefault();
+              if (online === false) return;
               if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
               setDragging(true);
             }}
             onDragLeave={() => setDragging(false)}
-            onClick={() => inputRef.current?.click()}
+            onClick={() => {
+              if (online === false) return;
+              inputRef.current?.click();
+            }}
             onKeyDown={(e) => {
+              if (online === false) return;
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 inputRef.current?.click();
               }
             }}
             role="button"
-            tabIndex={0}
+            tabIndex={online === false ? -1 : 0}
+            aria-disabled={online === false}
             aria-label="选择文件上传到电脑"
           >
             <span className="drop-icon" aria-hidden><Icon name="plus" size={20} /></span>
@@ -1744,7 +1808,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           {needsPicker && (
             <div className="ios-media-picker">
-              <button type="button" className="btn btn-small btn-ghost" onClick={() => mediaInputRef.current?.click()}>
+              <button type="button" className="btn btn-small btn-ghost" onClick={() => mediaInputRef.current?.click()} disabled={online === false}>
                 选择照片 / 视频
               </button>
               <span>Safari 可连续选择多张；iCloud 照片请先下载原片</span>
@@ -1755,6 +1819,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             ref={inputRef}
             type="file"
             multiple
+            disabled={online === false}
             aria-label="选择要上传的文件"
             style={{ display: 'none' }}
             onChange={(e) => {
@@ -1770,6 +1835,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             type="file"
             accept="image/*,video/*"
             multiple
+            disabled={online === false}
             aria-label="选择照片或视频"
             style={{ display: 'none' }}
             onChange={(e) => {
@@ -1784,10 +1850,10 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             <div className="pending-files" role="status">
               <p>已选择 {pendingFiles.length} 个文件，可继续添加后统一上传。</p>
               <div className="pending-actions">
-                <button type="button" className="btn btn-small btn-ghost" onClick={() => mediaInputRef.current?.click()}>
+                <button type="button" className="btn btn-small btn-ghost" onClick={() => mediaInputRef.current?.click()} disabled={online === false}>
                   继续选择
                 </button>
-                <button type="button" className="btn btn-small btn-primary" onClick={uploadPending}>
+                <button type="button" className="btn btn-small btn-primary" onClick={uploadPending} disabled={online === false}>
                   开始上传
                 </button>
                 <button type="button" className="btn btn-small btn-ghost" onClick={() => setPendingFiles([])}>
@@ -1807,6 +1873,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     className="file-select"
                     checked={selectedIds.has(file.id)}
                     onChange={() => toggleSelected(file.id)}
+                    disabled={online === false}
                     aria-label={`选择 ${file.name}`}
                   />
                   <span className="file-icon file-ext" aria-hidden>{fileExtension(file.name)}</span>
@@ -1823,7 +1890,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                           type="button"
                           className="btn btn-small btn-ghost"
                           onClick={() => void saveDownload(file)}
-                          disabled={savingId !== null || batchSaving || batchDeleting}
+                          disabled={online === false || savingId !== null || batchSaving || batchDeleting}
                           title={`保存 ${file.name}`}
                         >
                           {savingId === file.id ? '保存中…' : savedPaths[file.id] ? '重新保存' : (<><Icon name="download" size={14} /> 保存</>)}
@@ -1842,10 +1909,17 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                       </>
                     ) : (
                       <a
-                        className="btn btn-small btn-ghost"
+                        className={`btn btn-small btn-ghost${online === false ? ' is-disabled' : ''}`}
                         href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
                         download={file.name}
-                        onClick={() => setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' })}
+                        aria-disabled={online === false}
+                        onClick={(event) => {
+                          if (online === false) {
+                            event.preventDefault();
+                            return;
+                          }
+                          setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' });
+                        }}
                         title={`下载 ${file.name}`}
                         aria-label={`下载 ${file.name}`}
                       >
@@ -1856,6 +1930,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                       type="button"
                       className="btn btn-icon"
                       onClick={() => void deleteFile(file.id)}
+                      disabled={online === false}
                       title={`删除 ${file.name}`}
                       aria-label={`删除 ${file.name}`}
                     >
