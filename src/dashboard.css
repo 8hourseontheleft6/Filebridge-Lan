@@ -184,17 +184,14 @@ input {
 }
 
 .brand-mark {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: linear-gradient(145deg, #2f7cf6, #68a7ff);
-  color: #fff;
-  font-size: 17px;
-  font-weight: 800;
-  box-shadow: 0 7px 16px rgba(47, 124, 246, 0.22);
+  flex: 0 0 auto;
+  display: block;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  filter: none;
 }
 
 .brand > div {
@@ -213,7 +210,7 @@ input {
   color: var(--text);
 }
 
-.brand span:not(.brand-mark) {
+.brand > div span {
   margin-top: 3px;
   color: var(--text-dim);
   font-size: 0.7rem;

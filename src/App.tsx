@@ -6,6 +6,7 @@ import { RelayTransfer } from './relay/RelayTransfer';
 import { SettingsPanel } from './components/SettingsPanel';
 import { NetworkWarning } from './components/NetworkWarning';
 import { Icon } from './components/Icon';
+import { BrandMark } from './components/BrandMark';
 import { isRelayHosted, parseRelayHash } from './relay/api';
 import { isTauriHost } from './lib/hub';
 import type { LanServiceStatus } from './lib/hub';
@@ -158,7 +159,7 @@ export default function App() {
       <div className="app receiver-page">
         <header className="receiver-header">
           <div className="brand">
-            <span className="brand-mark">F</span>
+            <BrandMark tone="inverse" size={30} />
             <div>
               <strong>Filebridge Lan</strong>
               <span>跨网络中继 · 实验性接收</span>
@@ -168,7 +169,7 @@ export default function App() {
         <main className="receiver-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.5.6 Preview 1 · 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.6 Preview 2 · 实验性中继</footer>
         <BackToTop />
       </div>
     );
@@ -187,7 +188,7 @@ export default function App() {
     <div className="app app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">F</span>
+          <BrandMark tone="ink" size={30} />
           <div>
             <strong>Filebridge Lan</strong>
           </div>
@@ -219,7 +220,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className="sidebar-version">v1.5.6 Preview 1</span>
+          <span className="sidebar-version">v1.5.6 Preview 2</span>
           <span className="sidebar-mode">{activeMode === 'lan' ? '局域网直传' : '跨网络中继 · 实验'}</span>
         </div>
       </aside>
@@ -287,7 +288,7 @@ export default function App() {
           )}
         </main>
 
-        <footer className="app-footer">Filebridge-Lan v1.5.6 Preview 1 · 局域网直传 / 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.6 Preview 2 · 局域网直传 / 实验性中继</footer>
       </div>
 
       {helpOpen && (
