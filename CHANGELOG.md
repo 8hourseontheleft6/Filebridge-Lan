@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.6-preview.3 - Preview
+
+- Windows 增加单实例保护；第二次启动聚焦已有窗口后退出，不再创建第二套 Hub/发现服务
+- Hub/发现服务先绑定端口成功才记录运行；端口占用显示明确原因，释放后自动重试恢复
+- 设置页“关于”改用新白色底板 App Icon，删除旧蓝底字母 F 样式
+- 显式配置 NSIS `installerIcon`，修复 preview.2 安装器仍显示旧蓝色图标；重新核对 exe、快捷方式、开始菜单和安装器图标
+- 上传、断点续传、局域网发现、主机批准和 Public 门禁行为不变
+
 ## 1.5.6-preview.2 - Preview
 
 - 启用新的 Filebridge-Lan 标识：手写 F 与局域网信号弧，替换旧字母方块 F
