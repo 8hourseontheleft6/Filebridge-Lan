@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.6 - 2026-11-07
+
+- iPhone Safari 大文件上传与断点续传稳定版收尾；Fetch Blob、响应头后取消响应体、服务端真实 offset 和 SHA-256 校验保持
+- 远端离线检测、5 秒级断联提示、SSE heartbeat、离线操作禁用和 Private 自动恢复
+- Windows 单实例保护，以及 TCP/UDP 端口占用后的自动重试恢复
+- 新 Filebridge-Lan Logo、白色底板 App Icon、favicon、Tauri/NSIS 图标和小尺寸适配
+- 真实 Windows 主机 + Windows 虚拟机双机验收通过；不改变已验证的局域网发现、主机批准、Public 门禁和上传逻辑
+
 ## 1.5.6-preview.3 - Preview
 
 - Windows 增加单实例保护；第二次启动聚焦已有窗口后退出，不再创建第二套 Hub/发现服务
