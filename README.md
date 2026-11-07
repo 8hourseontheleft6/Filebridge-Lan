@@ -41,14 +41,14 @@
 界面使用 Local Workbench 方向：固定侧栏、任务优先的卡片、Cambria 品牌与重点标题、Microsoft YaHei 中文和实际加载的 Inter 功能文本。上传诊断默认折叠；Safari 照片上传支持连续选择后统一上传。
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.5.5_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.5.6-preview.1_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.5.5_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.5.6-preview.1_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
 - 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080 + UDP 42081
@@ -56,7 +56,7 @@ npm run tauri build
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42080 + UDP 42081）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.5.5.md](docs/RELEASE-1.5.5.md)
+版本说明：[docs/RELEASE-1.5.6-preview.1.md](docs/RELEASE-1.5.6-preview.1.md)
 
 > 从旧版本升级：首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
@@ -168,7 +168,9 @@ Filebridge-Lan/
 ```bash
 npm run check
 npm run build
-npm run test:version    # package/Tauri/Cargo/Node Hub/Bridge 版本一致性\nnpm run test:hub        # Node Hub 冒烟测试（含配对/鉴权）
+npm run test:version    # package/Tauri/Cargo/Node Hub/Bridge 版本一致性
+npm run test:connection # 远端健康探测/心跳状态机
+npm run test:hub        # Node Hub 冒烟测试（含配对/鉴权）
 npm run test:bridge     # 加密中继 API 冒烟测试
 node scripts/relay-hash-test.mjs  # 增量 SHA-256 测试
 cargo test --manifest-path src-tauri/Cargo.toml

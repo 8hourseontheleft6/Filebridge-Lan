@@ -31,6 +31,9 @@ jobs:
       - name: Version consistency
         run: npm run test:version
 
+      - name: Connection monitor tests
+        run: npm run test:connection
+
       - name: Hub smoke tests
         run: npm run test:hub
 

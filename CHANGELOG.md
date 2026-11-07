@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.6-preview.1 - Preview
+
+- 修复主机停止服务后远端健康检查长时间挂起：2 秒硬超时、探测串行化、连续两次失败才离线
+- Rust/Node Hub 新增每 5 秒 SSE heartbeat；客户端 10 秒无事件主动触发探测和离线
+- 远端页面顶部新增主机不可用提示，保留离线缓存并禁用上传、下载、删除和批量操作
+- Private 恢复后自动重新探测、刷新列表并解除禁用
+- v1.5.5 因远端断联提示未通过真实双机验收而未发布
+
 ## 1.5.5 - Draft
 
 - 修复 Hub API 与桌面程序版本不一致：Rust 使用 `CARGO_PKG_VERSION`，Node Hub/Bridge 从 `package.json` 读取

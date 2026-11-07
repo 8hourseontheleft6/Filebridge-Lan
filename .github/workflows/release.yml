@@ -48,6 +48,10 @@ jobs:
           }
           "TAG=$tag" >> $env:GITHUB_ENV
           "VERSION=$version" >> $env:GITHUB_ENV
+          $prerelease = $tag -match '-(preview|rc)\.'
+          $display = $tag -replace '-preview\.(\d+)$', ' Preview $1' -replace '-rc\.(\d+)$', ' RC $1'
+          "PRERELEASE=$($prerelease.ToString().ToLower())" >> $env:GITHUB_ENV
+          "RELEASE_NAME=Filebridge-Lan $display" >> $env:GITHUB_ENV
 
       - uses: actions/setup-node@v4
         with:
@@ -61,6 +65,9 @@ jobs:
 
       - name: Version consistency
         run: npm run test:version
+
+      - name: Connection monitor tests
+        run: npm run test:connection
 
       - name: Build Tauri installer
         run: npm run tauri build
@@ -92,11 +99,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: Filebridge-Lan ${{ env.TAG }}
+          name: ${{ env.RELEASE_NAME }}
           body_path: release-notes.md
           files: ${{ steps.package.outputs.installer }}
           fail_on_unmatched_files: true
           draft: true
+          prerelease: ${{ env.PRERELEASE == 'true' }}
           overwrite_files: true
           generate_release_notes: false
         env:

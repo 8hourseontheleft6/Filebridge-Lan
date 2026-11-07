@@ -168,7 +168,7 @@ export default function App() {
         <main className="receiver-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.5.5 · 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.6 Preview 1 · 实验性中继</footer>
         <BackToTop />
       </div>
     );
@@ -219,7 +219,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className="sidebar-version">v1.5.5</span>
+          <span className="sidebar-version">v1.5.6 Preview 1</span>
           <span className="sidebar-mode">{activeMode === 'lan' ? '局域网直传' : '跨网络中继 · 实验'}</span>
         </div>
       </aside>
@@ -287,7 +287,7 @@ export default function App() {
           )}
         </main>
 
-        <footer className="app-footer">Filebridge-Lan v1.5.5 · 局域网直传 / 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan v1.5.6 Preview 1 · 局域网直传 / 实验性中继</footer>
       </div>
 
       {helpOpen && (

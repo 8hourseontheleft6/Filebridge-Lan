@@ -177,7 +177,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <span className="about-mark">F</span>
           <div>
             <strong>Filebridge-Lan</strong>
-            <span>版本 1.5.5</span>
+            <span>版本 1.5.6 Preview 1</span>
           </div>
           <button
             type="button"
