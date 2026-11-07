@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { isTauriHost } from '../lib/hub';
 import { InfoTip } from './InfoTip';
 import { Icon } from './Icon';
+import { BrandMark } from './BrandMark';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -174,10 +175,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
       <article className="card about-card settings-about">
         <div className="about-head">
-          <span className="about-mark">F</span>
+          <BrandMark variant="app" size={38} className="about-mark" />
           <div>
             <strong>Filebridge-Lan</strong>
-            <span>版本 1.5.6 Preview 2</span>
+            <span>版本 1.5.6 Preview 3</span>
           </div>
           <button
             type="button"

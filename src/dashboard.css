@@ -1607,15 +1607,15 @@ input {
 }
 
 .about-mark {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(145deg, #2f7cf6, #68a7ff);
-  color: #fff;
-  font-size: 0.9rem;
-  font-weight: 800;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  object-fit: contain;
 }
 
 .about-head > div {
@@ -1632,7 +1632,7 @@ input {
   letter-spacing: -0.005em;
 }
 
-.about-head span:not(.about-mark) {
+.about-head > div span {
   color: #667386;
   font-size: 0.68rem;
 }
@@ -2217,7 +2217,7 @@ input {
   flex: 0 0 auto;
 }
 
-.settings-about .about-head span:not(.about-mark) {
+.settings-about .about-head > div span {
   color: #667386;
   font-size: 0.7rem;
 }
