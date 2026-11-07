@@ -951,12 +951,24 @@ async fn sse_events(
     State(state): State<HubState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let receiver = state.inner.events.subscribe();
-    let stream = BroadcastStream::new(receiver).filter_map(|message| async move {
+    let updates = BroadcastStream::new(receiver).filter_map(|message| async move {
         let event = message.ok()?;
         let data = serde_json::to_string(&event).ok()?;
         Some(Ok(Event::default().event("upload").data(data)))
     });
+    let heartbeat = futures_util::stream::unfold(
+        tokio::time::interval(Duration::from_secs(5)),
+        |mut interval| async move {
+            interval.tick().await;
+            Some((Ok(heartbeat_event()), interval))
+        },
+    );
+    let stream = futures_util::stream::select(updates, heartbeat);
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+fn heartbeat_event() -> Event {
+    Event::default().event("heartbeat").data("{}")
 }
 
 async fn api_not_found() -> ApiError {
@@ -1508,6 +1520,12 @@ mod tests {
         assert_eq!(sanitize_name("a/b\\c.txt"), "c.txt");
         assert_eq!(sanitize_name("  "), "file");
         assert_eq!(sanitize_name("中文 文件.bin"), "中文 文件.bin");
+    }
+
+    #[test]
+    fn heartbeat_event_has_named_heartbeat_type() {
+        let debug = format!("{:?}", heartbeat_event());
+        assert!(debug.contains("heartbeat"), "unexpected heartbeat event: {debug}");
     }
 
     #[test]

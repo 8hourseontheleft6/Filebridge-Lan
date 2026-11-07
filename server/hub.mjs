@@ -1006,12 +1006,12 @@ async function route(req, res) {
 
     const timer = setInterval(() => {
       try {
-        res.write(': ping\n\n');
+        res.write('event: heartbeat\ndata: {}\n\n');
       } catch {
         clearInterval(timer);
         sseClients.delete(res);
       }
-    }, 15000);
+    }, 5000);
 
     const cleanup = () => {
       clearInterval(timer);

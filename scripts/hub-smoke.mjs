@@ -108,6 +108,31 @@ async function pair(port, code, origin) {
   });
 }
 
+async function readSseHeartbeat(port, token) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/events?token=${encodeURIComponent(token)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.includes('event: heartbeat')) return;
+    }
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+  throw new Error('SSE heartbeat was not received within 7s');
+}
+
 async function createConnect(port, name = '测试电脑') {
   return createConnectAt(`http://127.0.0.1:${port}`, 'http://tauri.localhost', name);
 }
@@ -217,6 +242,9 @@ async function main() {
     const phone = await phonePair.json();
     assert.notEqual(phone.token, desktop.token);
     console.log('PASS pairing tokens');
+
+    await readSseHeartbeat(port, desktop.token);
+    console.log('PASS SSE heartbeat');
 
     const noToken = await fetch(`http://127.0.0.1:${port}/api/files`);
     assert.equal(noToken.status, 401);

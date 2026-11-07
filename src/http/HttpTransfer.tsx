@@ -9,6 +9,7 @@ import { RateCard } from '../components/RateCard';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
+import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers, type NearbyPeer } from './NearbyComputers';
 
@@ -218,6 +219,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const publicPaused = lanService?.gate === 'public_blocked' || networkBlocked;
   const [pausedError, setPausedError] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
+  const connectionMonitorRef = useRef(new ConnectionMonitor());
+  const sseLastEventAtRef = useRef(0);
   const [info, setInfo] = useState<HubInfo | null>(null);
   const [files, setFiles] = useState<HubFile[]>([]);
   const [upload, setUpload] = useState<UploadState | null>(null);
@@ -412,16 +415,22 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
   const refresh = useCallback(async () => {
     if (!token || !sessionReady) return;
-    const probe = async (): Promise<boolean> => {
+    const monitor = connectionMonitorRef.current;
+    if (!monitor.beginProbe()) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
       const response = await fetch(`${API_BASE}/api/files`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
       if (response.status === 401) {
         setToken('');
         setCodeError('授权已过期，请重新配对');
         try { window.sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignore */ }
-        return false;
+        monitor.completeProbe(true);
+        return;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as HubFile[];
@@ -430,20 +439,15 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       setSelectedIds((prev) => new Set(
         [...prev].filter((id) => nextFiles.some((file) => file.id === id))
       ));
+      const wasOffline = monitor.isOnline === false;
+      monitor.completeProbe(true);
+      if (wasOffline) sseLastEventAtRef.current = Date.now();
       setOnline(true);
-      return true;
-    };
-    try {
-      await probe();
     } catch {
-      // One missed poll is usually a transient network blip. Retry once before
-      // surfacing the host as offline, but keep the last file list in place.
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-      try {
-        await probe();
-      } catch {
-        setOnline(false);
-      }
+      const outcome = monitor.completeProbe(false);
+      if (outcome.changed && outcome.offline) setOnline(false);
+    } finally {
+      window.clearTimeout(timeout);
     }
   }, [sessionReady, token]);
 
@@ -452,18 +456,25 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     const source = new EventSource(
       `${API_BASE}/api/events?token=${encodeURIComponent(token)}`
     );
-    let errorTimer = 0;
     source.onopen = () => {
-      window.clearTimeout(errorTimer);
+      sseLastEventAtRef.current = Date.now();
+      connectionMonitorRef.current.noteHeartbeat();
       setOnline(true);
     };
     source.onerror = () => {
-      // EventSource reconnects automatically. Give it a short grace period so a
-      // transient Wi-Fi hiccup does not immediately replace the file list.
-      window.clearTimeout(errorTimer);
-      errorTimer = window.setTimeout(() => setOnline(false), 1500);
+      // EventSource reconnects automatically, but do not wait for the user to
+      // try an upload. Probe immediately; the heartbeat watchdog will mark the
+      // host offline if the stream stays silent.
+      sseLastEventAtRef.current = 0;
+      void refresh();
+    };
+    const onHeartbeat = () => {
+      sseLastEventAtRef.current = Date.now();
+      connectionMonitorRef.current.noteHeartbeat();
     };
     const onUpload = (event: Event) => {
+      sseLastEventAtRef.current = Date.now();
+      connectionMonitorRef.current.noteHeartbeat();
       try {
         const data = JSON.parse((event as MessageEvent).data) as UploadEventPayload;
         if (data.status === 'started' || data.status === 'progress') {
@@ -490,12 +501,24 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       }
     };
     source.addEventListener('upload', onUpload);
+    source.addEventListener('heartbeat', onHeartbeat);
     return () => {
-      window.clearTimeout(errorTimer);
       source.removeEventListener('upload', onUpload);
+      source.removeEventListener('heartbeat', onHeartbeat);
       source.close();
     };
   }, [online, sessionReady, token, refresh]);
+
+  useEffect(() => {
+    if (!token || !sessionReady || online !== true) return;
+    const timer = window.setInterval(() => {
+      if (!isHeartbeatStale(sseLastEventAtRef.current, Date.now(), HEARTBEAT_STALE_MS)) return;
+      const outcome = connectionMonitorRef.current.heartbeatTimedOut();
+      if (outcome.changed) setOnline(false);
+      void refresh();
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [online, refresh, sessionReady, token]);
 
   useEffect(() => {
     if (!liveUpload || !upload?.uploadId) return;
