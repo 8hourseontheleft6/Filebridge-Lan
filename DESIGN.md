@@ -121,7 +121,7 @@ The visual identity now has a deliberate two-voice relationship. A serif voiceâ€
 The palette is a cool, blue-tinted neutral field with one functional signal color and a small semantic status set.
 
 ### Primary
-- **Signal Blue** (`{colors.primary}`): The bright brand signal used for non-text emphasis, progress, and the brand mark.
+- **Signal Blue** (`{colors.primary}`): The bright brand signal used for non-text emphasis and progress. The logo itself is monochrome ink, not blue.
 - **Signal Blue Ink** (`{colors.primary-strong}`): The accessible text/action variant used for primary button fills, links, and active navigation. Its white-on-blue contrast is above the small-text floor.
 
 ### Neutral
@@ -188,7 +188,7 @@ Horizontal rhythm is tight inside controls and generous between groups. Do not a
 
 The system is flat with a soft lift. White cards sit above the canvas through a one-pixel `Hairline` border and a diffuse `0 3px 12px rgba(35, 55, 90, 0.04)` shadow. The effect should be barely visible at rest: enough to tell a card from the background, never enough to make each card feel like a floating window.
 
-Primary actions carry a small blue-tinted shadow (`0 4px 12px rgba(31, 95, 184, 0.22)`) as a response to their role, not as decoration. The brand mark and the back-to-top control use a slightly stronger ambient shadow because they are small, isolated objects. The active mode tab uses a shallow `0 2px 7px rgba(35, 55, 90, 0.09)` lift inside its track.
+Primary actions carry a small blue-tinted shadow (`0 4px 12px rgba(31, 95, 184, 0.22)`) as a response to their role, not as decoration. The back-to-top control uses a slightly stronger ambient shadow because it is a small, isolated object; the brand mark itself is flat artwork with no shadow or plate. The active mode tab uses a shallow `0 2px 7px rgba(35, 55, 90, 0.09)` lift inside its track.
 
 ### Named Rules
 **The Border-First Rule.** At rest, separation comes from the hairline border and tonal surface difference. A shadow is a soft secondary cue, not the primary container edge.
@@ -197,7 +197,7 @@ Primary actions carry a small blue-tinted shadow (`0 4px 12px rgba(31, 95, 184, 
 
 ## Shapes
 
-The form language is quietly rounded and tool-like: working cards use a generous `16px` radius, primary and ghost controls use `9px`, inputs use `8px`, and small icon buttons use `7px`. The brand mark and compact logo surfaces use `10px`. Pills and status chips are fully rounded (`999px`).
+The form language is quietly rounded and tool-like: working cards use a generous `16px` radius, primary and ghost controls use `9px`, inputs use `8px`, and small icon buttons use `7px`. The logo artwork itself is not a rounded tile; it inherits no plate, radius, gradient, or shadow. Pills and status chips are fully rounded (`999px`).
 
 Borders are one pixel and cool gray; do not use thick colored side borders, hard offset shadows, or geometric cutout masks. The rounded rectangle is the recurring form, but its radius changes by role rather than by arbitrary taste.
 
@@ -278,3 +278,36 @@ Borders are one pixel and cool gray; do not use thick colored side borders, hard
 - **Don't** hide the current connectability behind a bare "paired" label.
 - **Don't** add looping attention animations, bounce/elastic curves, or animate width/height/margins for decorative effect.
 - **Don't** give secondary regions their own background, border, and radius at the same time; that reads as a card inside a card.
+
+### Brand Mark and App Icon
+
+**The mark.** A single handwritten `F` with a quarter-round local-network signal (three arcs plus a dot) in the lower right, drawn on a 2048-unit artboard. It is the only product logo; there is no letter tile, plate, gradient, shadow, glass, folder, computer, arrow, or wordmark inside the artwork. "Filebridge Lan" is set in Cambria next to the mark, never inside it.
+
+**Source of truth.** `scripts/brand/render_mark.py` holds the master geometry; `scripts/brand/export_brand.py` exports every raster and vector from it. Every ICO frame is rendered from the vector master, not downscaled from the 256px frame.
+
+| File | Use |
+|---|---|
+| `src/assets/brand/filebridge-lan-logo-black.svg` (and `.png`, `.ico`) | Light surfaces: sidebar brand, light backgrounds, light taskbars |
+| `src/assets/brand/filebridge-lan-logo-white.svg` (and `.png`, `.ico`) | Dark surfaces only: relay receiver header, dark backgrounds |
+| `src/assets/brand/filebridge-lan-app-icon.svg` (and `.png`, `.ico`) | White rounded plate with the black mark: favicon, window icon, taskbar, Start menu, NSIS installer |
+| `docs/design/brand/` | Archived design assets, same master |
+
+The black and white versions are colour variants of one master and must never change shape. The app icon is white-plate + black mark; a blue app icon is not part of the system.
+
+**Weight.** The `F` stem carries about 12% more weight than the original sketch and the middle bar about 10%, so the mark holds its own against the Cambria wordmark without ever out-shouting it. The top bar, the hand-drawn taper, the dry-brush edges, and the dot proportion are unchanged.
+
+**Size ladder.** 16, 20, 24, 32, 40, 48, 64, 128, 256 px, all rendered from the master.
+
+- 16â€“24 px: +5% extra stem weight so the `F` never breaks up.
+- 16 and 20 px: only the inner signal arc plus a small dot, so the dot never becomes an ink block.
+- 32 px and above: the full three-arc signal.
+- The mark reads at 16 px on both light and dark backgrounds.
+
+**Surface rules.**
+
+- Light background: black transparent mark.
+- Dark background: white transparent mark; never use the white mark on light surfaces.
+- Favicon, window icon, taskbar, Start menu, and installer: the white-plate app icon, so it stays legible on both light and dark Windows taskbars.
+- The old letter-tile `F` (blue gradient square, white letter, blue shadow) is retired.
+
+**In code.** `src/components/BrandMark.tsx` is the only place the logo paths are referenced; callers pass `tone="ink"` (light surfaces) or `tone="inverse"` (dark surfaces). Do not re-create the mark as text, CSS, or an inline duplicate.
