@@ -1,6 +1,6 @@
 [package]
 name = "filebridge-lan"
-version = "1.5.6-preview.2"
+version = "1.5.6-preview.3"
 description = "Filebridge-Lan：局域网文件传输（Tauri 桌面端）"
 authors = ["Filebridge-Lan contributors"]
 license = "MIT"
@@ -45,4 +45,6 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
 ] }

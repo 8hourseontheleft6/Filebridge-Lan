@@ -3,6 +3,7 @@ pub mod downloads;
 pub mod hub;
 pub mod lan_service;
 pub mod network_profile;
+pub mod single_instance;
 
 use std::path::PathBuf;
 use tauri::Manager;
@@ -88,6 +89,11 @@ fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if !single_instance::claim() {
+        // The first instance has already been focused; never construct a
+        // second Tauri app, Hub or discovery thread.
+        std::process::exit(0);
+    }
     configure_webrtc_webview2();
 
     tauri::Builder::default()

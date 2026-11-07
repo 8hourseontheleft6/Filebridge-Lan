@@ -217,8 +217,13 @@ interface HttpTransferProps {
 export function HttpTransfer({ lanService = null, networkBlocked = false }: HttpTransferProps = {}) {
   const desktop = isTauriHost();
   const publicPaused = lanService?.gate === 'public_blocked' || networkBlocked;
+  const serviceUnavailable = desktop && lanService?.running === false && !publicPaused;
   const [pausedError, setPausedError] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (serviceUnavailable) setOnline(false);
+  }, [serviceUnavailable]);
   const connectionMonitorRef = useRef(new ConnectionMonitor());
   const sseLastEventAtRef = useRef(0);
   const [info, setInfo] = useState<HubInfo | null>(null);
@@ -1632,7 +1637,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       <p>
         {desktop
           ? lanService?.running === false
-            ? '局域网服务未能启动。请检查 TCP 42080 / UDP 42081 是否被占用，或查看下方发现状态后重试。'
+            ? (lanService.detail || '局域网服务未能启动。请检查 TCP 42080 / UDP 42081 是否被占用，或查看下方发现状态后重试。')
             : '电脑端局域网服务异常，暂时无法访问文件页。请重试连接。'
           : '无法连接电脑端服务。请确认运行 Filebridge-Lan 的电脑已启动，并与当前设备在同一局域网。'}
       </p>

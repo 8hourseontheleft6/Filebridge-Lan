@@ -1,6 +1,9 @@
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -20,6 +23,7 @@ struct ServiceConfig {
 }
 
 struct LanRuntime {
+    id: u64,
     hub: tauri::async_runtime::JoinHandle<()>,
     discovery: DiscoveryState,
 }
@@ -44,6 +48,7 @@ pub struct LanServiceState {
     runtime: Arc<Mutex<Option<LanRuntime>>>,
     gate: Arc<Mutex<GateStatus>>,
     apply_lock: Arc<tokio::sync::Mutex<()>>,
+    next_runtime_id: Arc<AtomicU64>,
 }
 
 impl LanServiceState {
@@ -56,6 +61,7 @@ impl LanServiceState {
                 detail: None,
             })),
             apply_lock: Arc::new(tokio::sync::Mutex::new(())),
+            next_runtime_id: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -66,22 +72,49 @@ impl LanServiceState {
         }
     }
 
-    fn start_runtime(&self) {
+    fn start_runtime(&self) -> Result<(), String> {
         let mut runtime = self.runtime.lock().unwrap();
         if runtime.is_some() {
-            return;
+            return Ok(());
         }
-        let discovery = DiscoveryState::start(self.config.port, self.config.data_dir.clone());
         let port = self.config.port;
+        let tcp = std::net::TcpListener::bind(("0.0.0.0", port)).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                format!("HTTP 服务启动失败：TCP {port} 已被占用")
+            } else {
+                format!("HTTP 服务启动失败：TCP {port} 绑定失败：{error}")
+            }
+        })?;
+        let discovery = DiscoveryState::start(port, self.config.data_dir.clone())?;
         let data_dir = self.config.data_dir.clone();
         let dist_dir = self.config.dist_dir.clone();
+        let id = self.next_runtime_id.fetch_add(1, Ordering::Relaxed);
+        let service = self.clone();
         let hub = tauri::async_runtime::spawn(async move {
-            if let Err(error) = crate::hub::serve(port, data_dir, dist_dir).await {
-                eprintln!("[hub] 启动失败（端口 {port} 可能已被占用）: {error}");
+            if let Err(error) = crate::hub::serve_with_listener(tcp, port, data_dir, dist_dir).await {
+                service.mark_runtime_failed(
+                    id,
+                    format!("HTTP 服务启动失败：端口 {port} 可能已被占用：{error}"),
+                );
             }
         });
-        *runtime = Some(LanRuntime { hub, discovery });
+        *runtime = Some(LanRuntime { id, hub, discovery });
         self.set_gate("allowed", None);
+        Ok(())
+    }
+
+    fn mark_runtime_failed(&self, id: u64, detail: String) {
+        let removed = {
+            let mut runtime = self.runtime.lock().unwrap();
+            if runtime.as_ref().map(|item| item.id) != Some(id) {
+                return;
+            }
+            runtime.take()
+        };
+        if let Some(runtime) = removed {
+            runtime.discovery.stop();
+        }
+        self.set_gate("port_error", Some(detail));
     }
 
     async fn stop_runtime(&self) {
@@ -101,7 +134,9 @@ impl LanServiceState {
     pub fn apply_startup(&self) {
         let status = network_profile::network_profile_status();
         if status.checked && status.compliant {
-            self.start_runtime();
+            if let Err(error) = self.start_runtime() {
+                self.set_gate("port_error", Some(error));
+            }
         } else {
             self.set_gate("public_blocked", Some(status.error.unwrap_or_else(|| {
                 "当前网络不是专用网络，局域网服务不会启动".to_string()
@@ -113,7 +148,9 @@ impl LanServiceState {
         let _guard = self.apply_lock.lock().await;
         let status = network_profile::network_profile_status();
         if status.checked && status.compliant {
-            self.start_runtime();
+            if let Err(error) = self.start_runtime() {
+                self.set_gate("port_error", Some(error));
+            }
         } else {
             self.stop_runtime().await;
             self.set_gate(
@@ -201,6 +238,9 @@ pub fn discovery_status(state: tauri::State<'_, LanServiceState>) -> DiscoverySt
 
 #[cfg(test)]
 mod tests {
+    use super::LanServiceState;
+
+    static SERVICE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     use crate::network_profile::NetworkProfileStatus;
     use std::net::Ipv4Addr;
 
@@ -246,6 +286,57 @@ mod tests {
     fn private_state_allows_services() {
         assert_eq!(decide(false, allowed(&status(true, None))), Decision::Start);
         assert_eq!(decide(true, allowed(&status(true, None))), Decision::Keep);
+    }
+
+    #[tokio::test]
+    async fn tcp_port_conflict_reports_error_and_recovers_after_release() {
+        let _guard = SERVICE_TEST_LOCK.lock().unwrap();
+        let root = std::env::current_dir().unwrap().join(format!(
+            ".filebridge-service-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("temp dir");
+        let occupied = std::net::TcpListener::bind(("0.0.0.0", 0)).expect("probe listener");
+        let port = occupied.local_addr().expect("probe addr").port();
+        let state = LanServiceState::new(port, root.clone(), root.join("dist"));
+        let error = state.start_runtime().expect_err("occupied TCP must fail");
+        assert!(error.contains("TCP"), "unexpected error: {error}");
+        assert!(!state.status().running);
+        drop(occupied);
+        state.start_runtime().expect("service should recover");
+        assert!(state.status().running);
+        state.stop_runtime().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn udp_port_conflict_reports_error_and_recovers_after_release() {
+        let _guard = SERVICE_TEST_LOCK.lock().unwrap();
+        let root = std::env::current_dir().unwrap().join(format!(
+            ".filebridge-service-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("temp dir");
+        let occupied = std::net::UdpSocket::bind(("0.0.0.0", 0)).expect("probe udp");
+        let discovery_port = occupied.local_addr().expect("probe addr").port();
+        let previous = std::env::var("FILEBRIDGE_DISCOVERY_PORT").ok();
+        std::env::set_var("FILEBRIDGE_DISCOVERY_PORT", discovery_port.to_string());
+        let tcp = std::net::TcpListener::bind(("0.0.0.0", 0)).expect("free tcp");
+        let port = tcp.local_addr().expect("tcp addr").port();
+        drop(tcp);
+        let state = LanServiceState::new(port, root.clone(), root.join("dist"));
+        let error = state.start_runtime().expect_err("occupied UDP must fail");
+        assert!(error.contains("UDP") || error.contains("发现"), "unexpected error: {error}");
+        assert!(!state.status().running);
+        drop(occupied);
+        state.start_runtime().expect("service should recover");
+        assert!(state.status().running);
+        state.stop_runtime().await;
+        match previous {
+            Some(value) => std::env::set_var("FILEBRIDGE_DISCOVERY_PORT", value),
+            None => std::env::remove_var("FILEBRIDGE_DISCOVERY_PORT"),
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -314,7 +314,7 @@ fn record_error(status: &Arc<Mutex<StatusData>>, message: String) {
 }
 
 impl DiscoveryState {
-    pub fn start(port: u16, data_dir: PathBuf) -> Self {
+    pub fn start(port: u16, data_dir: PathBuf) -> Result<Self, String> {
         let peer_id = stable_id(&data_dir);
         let peers: Arc<Mutex<HashMap<String, PeerRecord>>> = Arc::new(Mutex::new(HashMap::new()));
         let discovery_port = discovery_port();
@@ -340,42 +340,26 @@ impl DiscoveryState {
         let version = env!("CARGO_PKG_VERSION").to_string();
         let thread_stop = stop.clone();
 
+        let socket = UdpSocket::bind(("0.0.0.0", discovery_port)).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                format!("发现服务启动失败：端口 {discovery_port} 已被占用")
+            } else {
+                format!("发现服务启动失败：UDP {discovery_port} 绑定失败：{error}")
+            }
+        })?;
+        socket
+            .set_broadcast(true)
+            .map_err(|error| format!("启用 UDP 广播失败：{error}"))?;
+        socket
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .map_err(|error| format!("设置 UDP 读取超时失败：{error}"))?;
+        if let Ok(mut data) = status.lock() {
+            data.status = "listening".to_string();
+            data.bound = true;
+            data.bind_address = Some(format!("0.0.0.0:{discovery_port}"));
+        }
+
         let handle = thread::spawn(move || {
-            let socket = match UdpSocket::bind(("0.0.0.0", discovery_port)) {
-                Ok(socket) => socket,
-                Err(error) => {
-                    let message = if error.kind() == std::io::ErrorKind::AddrInUse {
-                        format!("发现服务启动失败：端口 {discovery_port} 已被占用")
-                    } else {
-                        format!("发现服务启动失败：UDP {discovery_port} 绑定失败：{error}")
-                    };
-                    if let Ok(mut data) = status.lock() {
-                        data.status = "error".to_string();
-                        data.bound = false;
-                        data.current_error = Some(message.clone());
-                        data.last_error = Some(message);
-                    }
-                    return;
-                }
-            };
-
-            if let Ok(mut data) = status.lock() {
-                data.status = "listening".to_string();
-                data.bound = true;
-                data.bind_address = Some(format!("0.0.0.0:{discovery_port}"));
-            }
-
-            if let Err(error) = socket.set_broadcast(true) {
-                record_error(&status, format!("启用 UDP 广播失败：{error}"));
-            }
-            if let Err(error) = socket.set_read_timeout(Some(Duration::from_millis(500))) {
-                record_error(&status, format!("设置 UDP 读取超时失败：{error}"));
-                if let Ok(mut data) = status.lock() {
-                    data.status = "error".to_string();
-                }
-                return;
-            }
-
             let mut buffer = [0u8; 2048];
             let mut targets = targets;
             let mut last_beacon = Instant::now() - BEACON_INTERVAL;
@@ -461,7 +445,7 @@ impl DiscoveryState {
         });
         *state.thread.lock().unwrap() = Some(handle);
 
-        state
+        Ok(state)
     }
 
     pub fn peers(&self) -> Vec<Peer> {

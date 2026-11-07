@@ -15,3 +15,6 @@ screenshots/
 
 .impeccable/critique/
 
+.filebridge-service-test-*
+.filebridge-chunk-test-*
+

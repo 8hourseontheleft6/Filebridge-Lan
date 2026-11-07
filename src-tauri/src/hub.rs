@@ -322,9 +322,29 @@ pub fn router(state: HubState) -> Router {
 }
 
 pub async fn serve(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    serve_listener(listener, port, data_dir, dist_dir).await
+}
+
+pub async fn serve_with_listener(
+    listener: std::net::TcpListener,
+    port: u16,
+    data_dir: PathBuf,
+    dist_dir: PathBuf,
+) -> anyhow::Result<()> {
+    listener.set_nonblocking(true)?;
+    let listener = tokio::net::TcpListener::from_std(listener)?;
+    serve_listener(listener, port, data_dir, dist_dir).await
+}
+
+async fn serve_listener(
+    listener: tokio::net::TcpListener,
+    port: u16,
+    data_dir: PathBuf,
+    dist_dir: PathBuf,
+) -> anyhow::Result<()> {
     let state = new(port, data_dir, dist_dir).await?;
     let app = router(state);
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     let addr = listener.local_addr()?;
     hub_log!("[hub] HTTP Hub 启动于 http://{addr}");
     if let Ok(ip) = local_ip_address::local_ip() {
@@ -1540,7 +1560,7 @@ mod tests {
 
     #[tokio::test]
     async fn chunk_upload_reconciles_partial_offset_and_finishes_with_hash() {
-        let root = std::env::temp_dir().join(format!("filebridge-chunk-test-{}", Uuid::new_v4()));
+        let root = std::env::current_dir().unwrap().join(format!(".filebridge-chunk-test-{}", Uuid::new_v4()));
         let dist = root.join("dist");
         let state = new(0, root.clone(), dist).await.expect("hub state");
         let source = vec![7_u8; 5 * 1024 * 1024];
