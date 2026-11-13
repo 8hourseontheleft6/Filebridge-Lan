@@ -244,8 +244,15 @@ async function main() {
     console.log('PASS pairing tokens');
 
     const clipboardHeaders = { Authorization: `Bearer ${desktop.token}`, 'Content-Type': 'application/json' };
+    const defaultClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+      headers: { Authorization: `Bearer ${desktop.token}` },
+    });
+    assert.equal((await defaultClipboard.json()).enabled, true, 'clipboard must start enabled');
     const noAuthClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`);
     assert.equal(noAuthClipboard.status, 401);
+    await fetch(`http://127.0.0.1:${port}/api/clipboard/enabled`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: false }),
+    });
     const disabledClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
       method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'disabled', source: 'phone' }),
     });

@@ -73,7 +73,7 @@ const CLIPBOARD_WINDOW_MS = 60_000;
 const CLIPBOARD_MAX_WRITES_PER_WINDOW = 30;
 const CLIPBOARD_MAX_WRITES_PER_IP = 10;
 const clipboardState = {
-  enabled: false,
+  enabled: true,
   text: '',
   hash: null,
   updatedAt: null,

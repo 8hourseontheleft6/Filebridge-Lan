@@ -1974,28 +1974,26 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             {!hasActiveTransfer && <span className="status-pill warn">空闲</span>}
           </div>
 
-          {hasActiveTransfer && (
-            <div className="rate-grid">
-              <RateCard
-                label="上传"
-                icon="↑"
-                speed={effectiveUploadSpeed}
-                peak={uploadPeak}
-                total={uploadTotal}
-                history={uploadHistory}
-                tone="blue"
-              />
-              <RateCard
-                label="下载"
-                icon="↓"
-                speed={effectiveDownloadSpeed}
-                peak={downloadPeak}
-                total={downloadTotal}
-                history={downloadHistory}
-                tone="green"
-              />
-            </div>
-          )}
+          <div className="rate-grid">
+            <RateCard
+              label="上传"
+              icon="↑"
+              speed={effectiveUploadSpeed}
+              peak={uploadPeak}
+              total={uploadTotal}
+              history={uploadHistory}
+              tone="blue"
+            />
+            <RateCard
+              label="下载"
+              icon="↓"
+              speed={effectiveDownloadSpeed}
+              peak={downloadPeak}
+              total={downloadTotal}
+              history={downloadHistory}
+              tone="green"
+            />
+          </div>
 
           {upload && (
             <div className="progress-block">

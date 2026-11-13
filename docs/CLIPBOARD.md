@@ -6,7 +6,7 @@ Status: 1.6.0-preview.1. Node Hub and Rust Hub implement the same contract.
 
 - Every endpoint requires the existing approved bearer token. No token → `401`.
 - Enabling requires a loopback request (`127.0.0.1` / `::1`); remote phone → `403 clipboard_host_only`.
-- Default state is disabled. Disabling clears the in-memory text.
+- The Hub starts enabled so the approved desktop session can begin syncing immediately. The user can disable it at any time, which clears the in-memory text.
 - Text is in memory only; no file, no discovery beacon, no URL query, no normal log.
 
 ## Limits

@@ -45,6 +45,7 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
   const hashRef = useRef('');
   const lastSystemHashRef = useRef('');
   const syncingRef = useRef(false);
+  const autoEnableRef = useRef(false);
   const enabled = Boolean(snapshot?.enabled);
   const text = snapshot?.text || '';
   const canEnable = desktop || ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
@@ -162,6 +163,14 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
       setBusy(false);
     }
   };
+
+  // Desktop default: enable once when the approved session becomes ready.
+  // A later manual disable is respected because this ref is never reset.
+  useEffect(() => {
+    if (!desktop || !canEnable || paused || !snapshot || snapshot.enabled || autoEnableRef.current) return;
+    autoEnableRef.current = true;
+    void toggle();
+  }, [canEnable, desktop, paused, snapshot?.enabled]);
 
   const send = async (value: string, source: 'desktop' | 'phone' = desktop ? 'desktop' : 'phone') => {
     const body = value;

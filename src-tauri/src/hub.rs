@@ -143,7 +143,7 @@ struct ClipboardInner {
 impl Default for ClipboardInner {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             text: String::new(),
             hash: None,
             updated_at: None,
@@ -1763,6 +1763,8 @@ mod tests {
         let state = new(0, root.clone(), root.join("dist")).await.expect("hub state");
         let loopback = ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0)));
         let remote = ConnectInfo(SocketAddr::from(([192, 0, 2, 10], 0)));
+
+        assert!(state.clipboard_snapshot().await.enabled, "clipboard must start enabled");
 
         let denied = clipboard_enable(
             State(state.clone()),
