@@ -2999,19 +2999,6 @@ input {
 .progress-card.is-idle .card-head {
   margin-bottom: 4px;
 }
-
-.progress-idle {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-  color: var(--text-dim);
-  font-size: 0.78rem;
-}
-
-.progress-idle .hint {
-  font-size: 0.75rem;
-}
 /* Clipboard sync: a separate low-priority card, never inside transfer diagnostics. */
 .dashboard-grid {
   grid-template-areas:
