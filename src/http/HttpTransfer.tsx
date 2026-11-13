@@ -1470,6 +1470,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       ? liveSpeed
       : 0;
   const effectiveDownloadSpeed = activeDownload ? downloadSpeed : 0;
+  const hasActiveTransfer = Boolean(upload || visibleLiveUpload || activeDownload);
   const [uploadPeak, setUploadPeak] = useState(0);
   const [downloadPeak, setDownloadPeak] = useState(0);
   const [uploadHistory, setUploadHistory] = useState<number[]>(() => Array(24).fill(0));
@@ -1543,13 +1544,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const allSelected = files.length > 0 && files.every((file) => selectedIds.has(file.id));
 
   const pairingLabel = token
-    ? publicPaused
-      ? '已配对 · 当前不可连接'
-      : online === true
-        ? '已配对 · 在线'
-        : online === false
-          ? '已配对 · 服务异常'
-          : '已配对 · 连接中'
+    ? '已配对'
     : codeError
       ? '授权已过期'
       : '未配对';
@@ -1747,7 +1742,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           <div className="card-head">
             <div>
               <h2>文件列表</h2>
-              <p>可勾选多个文件批量保存/下载，也可以删除。</p>
             </div>
             <div className="card-actions">
               <span className="count-badge">{files.length}</span>
@@ -1831,7 +1825,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           >
             <span className="drop-icon" aria-hidden><Icon name="plus" size={20} /></span>
             <p><strong>选择文件</strong>，或拖放到这里</p>
-            <p className="hint">支持多选 / 拖放；手机扫码上传的文件也会出现在列表</p>
+            <p className="hint">支持多选 / 拖放</p>
           </div>
 
           {needsPicker && (
@@ -1970,34 +1964,36 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           </div>
         </article>
 
-        <article className="card progress-card">
+        <article className={`card progress-card${hasActiveTransfer ? '' : ' is-idle'}`}>
           <div className="card-head">
             <div>
               <h2>传输进度</h2>
-              <p>上传、接收和保存的实时状态。</p>
+              {hasActiveTransfer && <p>上传、接收和保存的实时状态。</p>}
             </div>
           </div>
 
-          <div className="rate-grid">
-            <RateCard
-              label="上传"
-              icon="↑"
-              speed={effectiveUploadSpeed}
-              peak={uploadPeak}
-              total={uploadTotal}
-              history={uploadHistory}
-              tone="blue"
-            />
-            <RateCard
-              label="下载"
-              icon="↓"
-              speed={effectiveDownloadSpeed}
-              peak={downloadPeak}
-              total={downloadTotal}
-              history={downloadHistory}
-              tone="green"
-            />
-          </div>
+          {hasActiveTransfer && (
+            <div className="rate-grid">
+              <RateCard
+                label="上传"
+                icon="↑"
+                speed={effectiveUploadSpeed}
+                peak={uploadPeak}
+                total={uploadTotal}
+                history={uploadHistory}
+                tone="blue"
+              />
+              <RateCard
+                label="下载"
+                icon="↓"
+                speed={effectiveDownloadSpeed}
+                peak={downloadPeak}
+                total={downloadTotal}
+                history={downloadHistory}
+                tone="green"
+              />
+            </div>
+          )}
 
           {upload && (
             <div className="progress-block">
@@ -2025,14 +2021,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 {upload.checking && <span>正在核对服务器已保存进度…</span>}
                 {upload.status === 'cancelled' && <span>已取消，可继续上传</span>}
                 {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
-                {!upload.checking
-                  && upload.status !== 'done'
-                  && uploadInFlightBytes > uploadLoadedBytes
-                  && (
-                    <span className="upload-diagnostic">
-                      浏览器已发送 {formatBytes(uploadInFlightBytes)}，服务器已保存 {formatBytes(uploadLoadedBytes)}
-                    </span>
-                  )}
+
               </div>
               <details className="upload-diag" open={upload.status === 'error'}>
                 <summary>上传诊断</summary>
@@ -2118,11 +2107,10 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             </div>
           )}
 
-          {!upload && !showLiveUpload && !activeDownload && (
-            <div className="progress-empty">
-              <Icon name="arrow-up-right" size={16} />
-              <p>暂无进行中的传输</p>
-              <p className="hint">上传或保存文件后，这里会显示速度和剩余时间。</p>
+          {!hasActiveTransfer && (
+            <div className="progress-idle">
+              <span>暂无进行中的传输</span>
+              <span className="hint">开始上传或保存后显示实时速率</span>
             </div>
           )}
         </article>
@@ -2131,7 +2119,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           <div className="card-head">
             <div>
               <h2>{desktop ? '扫码连接' : '连接状态'}</h2>
-              <p>{desktop ? '同一 WiFi 下，手机扫码即可打开。' : '这台设备已连接到电脑端。'}</p>
+              {desktop && <p>同一 WiFi 下，手机扫码即可打开。</p>}
             </div>
             <span className={`status-pill ${statusClass === 'chip-ok' ? 'ok' : statusClass === 'chip-bad' ? 'danger' : 'warn'}`}>
               {statusLabel}
@@ -2140,10 +2128,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           {serviceNotice}
 
-          {!desktop && (
-            <p className="connected-phone-line">
-              已连接 {window.location.host} · 已配对
-            </p>
+          {!desktop && token && (
+            <p className="connected-phone-line">已连接 {window.location.host}</p>
           )}
 
           {desktop && online === true && (

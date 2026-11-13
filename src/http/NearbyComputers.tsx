@@ -98,8 +98,7 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
         </div>
       ) : peers.length === 0 ? (
         <div className="nearby-empty">
-          <span>暂时没有发现其他电脑。</span>
-          <span>请确认双方在同一子网、Windows 网络为专用，并关闭 AP/客户端隔离。</span>
+          <span>暂时没有发现其他电脑 · 确认同一子网且为专用网络</span>
           {discovery?.bound && (
             <span className="nearby-diagnostic">
               UDP 42081 已监听 · {sendTargetCount} 个发送目标

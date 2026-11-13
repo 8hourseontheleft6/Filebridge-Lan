@@ -2978,3 +2978,25 @@ input {
     gap: 8px;
   }
 }
+/* Idle transfer card: keep the capability, remove the six zero readings. */
+.progress-card.is-idle {
+  min-height: 0;
+  padding-bottom: 18px;
+}
+
+.progress-card.is-idle .card-head {
+  margin-bottom: 4px;
+}
+
+.progress-idle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.progress-idle .hint {
+  font-size: 0.75rem;
+}

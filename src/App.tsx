@@ -169,7 +169,7 @@ export default function App() {
         <main className="receiver-main">
           <RelayTransfer initialLink={relayLink} standalone />
         </main>
-        <footer className="app-footer">Filebridge-Lan v1.5.6 · 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan</footer>
         <BackToTop />
       </div>
     );
@@ -244,13 +244,9 @@ export default function App() {
               <button type="button" className="btn btn-ghost" onClick={() => setView('transfer')}>
                 返回传输
               </button>
-            ) : activeMode === 'lan' ? (
-              <button type="button" className="btn btn-ghost" onClick={() => setView('settings')}>
-                <Icon name="settings" size={15} /> 设置
-              </button>
-            ) : (
+            ) : activeMode === 'relay' ? (
               <span className="status-pill warn">实验性</span>
-            )}
+            ) : null}
           </div>
         </header>
 
@@ -288,7 +284,7 @@ export default function App() {
           )}
         </main>
 
-        <footer className="app-footer">Filebridge-Lan v1.5.6 · 局域网直传 / 实验性中继</footer>
+        <footer className="app-footer">Filebridge-Lan</footer>
       </div>
 
       {helpOpen && (
