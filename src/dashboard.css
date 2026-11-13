@@ -389,7 +389,8 @@ input {
     "files"
     "progress"
     "connection"
-    "nearby";
+    "nearby"
+    "clipboard";
   gap: 16px;
   align-items: stretch;
 }
@@ -411,7 +412,8 @@ input {
   grid-template-areas:
     "files"
     "progress"
-    "connection";
+    "connection"
+    "clipboard";
 }
 
 .card {
@@ -1286,13 +1288,14 @@ input {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1000px) {
   .app.app-shell {
     display: block;
   }
 
   .sidebar {
     position: static;
+    width: 100%;
     height: auto;
     padding: 14px 16px;
     border-right: 0;
@@ -1332,7 +1335,16 @@ input {
       "files"
       "progress"
       "connection"
-      "nearby";
+      "nearby"
+      "clipboard";
+  }
+
+  .lan-dashboard:not(.has-nearby) .dashboard-grid {
+    grid-template-areas:
+      "files"
+      "progress"
+      "connection"
+      "clipboard";
   }
 
   .guide-grid {
@@ -3119,8 +3131,8 @@ input {
       "files"
       "progress"
       "connection"
-      "clipboard"
-      "nearby";
+      "nearby"
+      "clipboard";
   }
 
   .lan-dashboard:not(.has-nearby) .dashboard-grid {
@@ -3131,72 +3143,73 @@ input {
       "clipboard";
   }
 }
-.workspace-left,
-.workspace-right {
-  display: contents;
-}
-
-/* Annotation follow-up: primary work cards share one fixed row on desktops. */
+/* Layout: files/progress lead, connection/nearby support, clipboard last. */
 @media (min-width: 900px) {
   .dashboard-grid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 1fr);
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
     grid-template-areas:
-      "left right"
-      "nearby nearby";
+      "files progress"
+      "connection nearby"
+      "clipboard clipboard";
     align-items: start;
   }
 
   .lan-dashboard:not(.has-nearby) .dashboard-grid {
     grid-template-areas:
-      "left right";
-  }
-
-  .workspace-left,
-  .workspace-right {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-width: 0;
-  }
-
-  .workspace-left {
-    grid-area: left;
-    align-self: stretch;
-  }
-
-  .workspace-right {
-    grid-area: right;
-    align-self: stretch;
+      "files progress"
+      "connection connection"
+      "clipboard clipboard";
   }
 
   .files-card {
     grid-area: files;
-    height: 360px;
     display: flex;
     flex-direction: column;
   }
 
   .progress-card {
-    display: flex;
-    flex-direction: column;
+    grid-area: progress;
   }
 
   .connection-card {
     grid-area: connection;
-    flex: 1 1 auto;
+  }
+
+  .nearby-card {
+    grid-area: nearby;
   }
 
   .clipboard-card {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    height: auto;
-    overflow: visible;
+    grid-area: clipboard;
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .clipboard-card .card-head {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+  }
+
+  .clipboard-card .clipboard-latest {
+    grid-column: 1;
+  }
+
+  .clipboard-card .clipboard-compose {
+    grid-column: 2;
+    margin-top: 0;
+  }
+
+  .clipboard-card .clipboard-off,
+  .clipboard-card .clipboard-notice,
+  .clipboard-card .clipboard-error {
+    grid-column: 1 / -1;
   }
 
   .files-card .file-list {
-    flex: 1 1 auto;
     min-height: 0;
+    max-height: 300px;
     overflow: auto;
   }
 }

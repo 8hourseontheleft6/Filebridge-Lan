@@ -1739,7 +1739,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         </div>
       )}
       <div className="dashboard-grid">
-        <div className="workspace-left">
+
         <article className="card files-card">
           <div className="card-head">
             <div>
@@ -1966,56 +1966,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           </div>
         </article>
 
-        <article className="card connection-card">
-          <div className="card-head">
-            <div>
-              <h2>{desktop ? '扫码连接' : '连接状态'}</h2>
-              {desktop && <p>同一 WiFi 下，手机扫码即可打开。</p>}
-            </div>
-            <span className={`status-pill ${statusClass === 'chip-ok' ? 'ok' : statusClass === 'chip-bad' ? 'danger' : 'warn'}`}>
-              {statusLabel}
-            </span>
-          </div>
-
-          {serviceNotice}
-
-          {!desktop && token && (
-            <p className="connected-phone-line">已连接 {window.location.host}</p>
-          )}
-
-          {desktop && online === true && (
-            phoneUrl ? (
-              <JoinQr
-                url={phoneUrl}
-                displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
-                title="手机扫码打开"
-                subtitle="配对码已自动带入，无需手动输入"
-                actions={(
-                  <button
-                    type="button"
-                    className="btn btn-small btn-ghost"
-                    aria-pressed={showCode}
-                    onClick={() => setShowCode((value) => !value)}
-                  >
-                    {showCode ? '隐藏 code' : '显示 code'}
-                  </button>
-                )}
-              />
-            ) : (
-              <p className="hint">
-                {sessionCode
-                  ? '未检测到局域网 IP，请确认电脑已连接 WiFi/网线后刷新。'
-                  : '已通过主机确认连接。'}
-              </p>
-            )
-          )}
-
-          {desktop && pairingDetails}
-        </article>
-
-        </div>
-
-        <div className="workspace-right">
         <article className={`card progress-card${hasActiveTransfer ? '' : ' is-idle'}`}>
           <div className="card-head">
             <div>
@@ -2159,20 +2109,64 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           )}
         </article>
 
-        <ClipboardPanel
-          token={token}
-          desktop={desktop}
-          online={online}
-          publicPaused={publicPaused}
-        />
-        </div>
+        <article className="card connection-card">
+          <div className="card-head">
+            <div>
+              <h2>{desktop ? '扫码连接' : '连接状态'}</h2>
+              {desktop && <p>同一 WiFi 下，手机扫码即可打开。</p>}
+            </div>
+            <span className={`status-pill ${statusClass === 'chip-ok' ? 'ok' : statusClass === 'chip-bad' ? 'danger' : 'warn'}`}>
+              {statusLabel}
+            </span>
+          </div>
 
+          {serviceNotice}
 
+          {!desktop && token && (
+            <p className="connected-phone-line">已连接 {window.location.host}</p>
+          )}
+
+          {desktop && online === true && (
+            phoneUrl ? (
+              <JoinQr
+                url={phoneUrl}
+                displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
+                title="手机扫码打开"
+                subtitle="配对码已自动带入，无需手动输入"
+                actions={(
+                  <button
+                    type="button"
+                    className="btn btn-small btn-ghost"
+                    aria-pressed={showCode}
+                    onClick={() => setShowCode((value) => !value)}
+                  >
+                    {showCode ? '隐藏 code' : '显示 code'}
+                  </button>
+                )}
+              />
+            ) : (
+              <p className="hint">
+                {sessionCode
+                  ? '未检测到局域网 IP，请确认电脑已连接 WiFi/网线后刷新。'
+                  : '已通过主机确认连接。'}
+              </p>
+            )
+          )}
+
+          {desktop && pairingDetails}
+        </article>
 
         <NearbyComputers
           onConnect={setPeerFrame}
           activePeerId={peerFrame?.id}
           activeState={peerState}
+        />
+
+        <ClipboardPanel
+          token={token}
+          desktop={desktop}
+          online={online}
+          publicPaused={publicPaused}
         />
 
 
