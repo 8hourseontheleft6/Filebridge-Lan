@@ -3161,10 +3161,12 @@ input {
 
   .workspace-left {
     grid-area: left;
+    align-self: stretch;
   }
 
   .workspace-right {
     grid-area: right;
+    align-self: stretch;
   }
 
   .files-card {
@@ -3175,16 +3177,19 @@ input {
   }
 
   .progress-card {
-    align-self: start;
     display: flex;
     flex-direction: column;
   }
 
   .connection-card {
     grid-area: connection;
+    flex: 1 1 auto;
   }
 
   .clipboard-card {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
     height: auto;
     overflow: visible;
   }
