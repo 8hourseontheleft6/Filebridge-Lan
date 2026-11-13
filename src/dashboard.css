@@ -3313,3 +3313,29 @@ input {
     transition: opacity 120ms linear;
   }
 }
+/* Audit pass: focus, target and contrast consistency. */
+.field-label {
+  color: var(--text-dim);
+}
+
+.clipboard-input:focus {
+  outline: 2px solid var(--primary-strong);
+  outline-offset: 2px;
+  border-color: var(--primary);
+}
+
+.clipboard-text:focus-visible {
+  outline: 2px solid var(--primary-strong);
+  outline-offset: 2px;
+}
+
+.back-to-top {
+  width: 44px;
+  height: 44px;
+}
+
+@media (max-width: 1000px) {
+  .side-nav-item {
+    min-width: 44px;
+  }
+}

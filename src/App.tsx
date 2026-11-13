@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { HttpTransfer } from './http/HttpTransfer';
 import { HostApprovalGate } from './http/HostApprovalGate';
@@ -58,6 +59,8 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpClosing, setHelpClosing] = useState(false);
   const helpCloseTimerRef = useRef<number | null>(null);
+  const helpDialogRef = useRef<HTMLElement | null>(null);
+  const helpTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
   const [lanServiceStatus, setLanServiceStatus] = useState<LanServiceStatus | null>(null);
   const [networkChecking, setNetworkChecking] = useState(false);
@@ -184,6 +187,7 @@ export default function App() {
       setHelpOpen(false);
       setHelpClosing(false);
       helpCloseTimerRef.current = null;
+      window.requestAnimationFrame(() => helpTriggerRef.current?.focus());
     }, 180);
   }, []);
 
@@ -204,15 +208,40 @@ export default function App() {
 
   useEffect(() => {
     if (!helpOpen) return;
+    const dialog = helpDialogRef.current;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeHelp();
+      if (event.key === 'Escape') {
+        closeHelp();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((node) => node.getClientRects().length > 0);
+      if (focusables.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (!dialog.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [closeHelp, helpOpen]);
 
   return (
-    <div className="app app-shell">
+    <div className="app app-shell" inert={helpOpen || undefined} aria-hidden={helpOpen || undefined}>
       <aside className="sidebar">
         <div className="brand">
           <BrandMark tone="ink" size={30} />
@@ -230,7 +259,7 @@ export default function App() {
             <span className="side-nav-icon"><Icon name="transfer" size={17} /></span>
             <span className="side-nav-label">传输</span>
           </button>
-          <button type="button" className="side-nav-item" onClick={openHelp} aria-haspopup="dialog">
+          <button type="button" className="side-nav-item" ref={helpTriggerRef} onClick={openHelp} aria-haspopup="dialog">
             <span className="side-nav-icon"><Icon name="help" size={17} /></span>
             <span className="side-nav-label">使用说明</span>
           </button>
@@ -314,14 +343,14 @@ export default function App() {
         <footer className="app-footer">Filebridge-Lan</footer>
       </div>
 
-      {helpOpen && (
+      {helpOpen && createPortal(
         <div
           className={`help-overlay${helpClosing ? ' is-closing' : ''}`}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeHelp();
           }}
         >
-          <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+          <section ref={helpDialogRef} className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
             <div className="help-head">
               <div>
                 <h2 id="help-title">使用说明</h2>
@@ -356,7 +385,8 @@ export default function App() {
               局域网直传目前是 HTTP 明文，只有访问码保护，不做内容加密；跨网络中继才是 AES-256-GCM 实验性端到端加密。
             </p>
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <HostApprovalGate />
