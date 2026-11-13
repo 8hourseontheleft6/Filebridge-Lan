@@ -3131,3 +3131,56 @@ input {
       "clipboard";
   }
 }
+/* Annotation follow-up: primary work cards share one fixed row on wide desktops. */
+@media (min-width: 1180px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr);
+    grid-template-areas:
+      "files progress"
+      "connection clipboard"
+      "nearby nearby";
+    align-items: start;
+  }
+
+  .lan-dashboard:not(.has-nearby) .dashboard-grid {
+    grid-template-areas:
+      "files progress"
+      "connection clipboard";
+  }
+
+  .files-card {
+    height: 360px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .progress-card {
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .files-card .file-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .connection-card,
+  .clipboard-card {
+    height: auto;
+    overflow: visible;
+  }
+
+  .settings-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .settings-section,
+  .settings-about {
+    margin: 0;
+  }
+}

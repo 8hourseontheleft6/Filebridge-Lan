@@ -1971,6 +1971,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
               <h2>传输进度</h2>
               {hasActiveTransfer && <p>上传、接收和保存的实时状态。</p>}
             </div>
+            {!hasActiveTransfer && <span className="status-pill warn">空闲</span>}
           </div>
 
           {hasActiveTransfer && (
@@ -2105,13 +2106,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   {activeDownload.status === 'cancelling' ? '取消中…' : '取消'}
                 </button>
               </div>
-            </div>
-          )}
-
-          {!hasActiveTransfer && (
-            <div className="progress-idle">
-              <span>暂无进行中的传输</span>
-              <span className="hint">开始上传或保存后显示实时速率</span>
             </div>
           )}
         </article>
