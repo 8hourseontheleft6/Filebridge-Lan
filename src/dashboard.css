@@ -3131,24 +3131,44 @@ input {
       "clipboard";
   }
 }
+.workspace-left,
+.workspace-right {
+  display: contents;
+}
+
 /* Annotation follow-up: primary work cards share one fixed row on wide desktops. */
 @media (min-width: 1180px) {
   .dashboard-grid {
     grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr);
     grid-template-areas:
-      "files progress"
-      "connection clipboard"
+      "left right"
       "nearby nearby";
     align-items: start;
   }
 
   .lan-dashboard:not(.has-nearby) .dashboard-grid {
     grid-template-areas:
-      "files progress"
-      "connection clipboard";
+      "left right";
+  }
+
+  .workspace-left,
+  .workspace-right {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+
+  .workspace-left {
+    grid-area: left;
+  }
+
+  .workspace-right {
+    grid-area: right;
   }
 
   .files-card {
+    grid-area: files;
     height: 360px;
     display: flex;
     flex-direction: column;
@@ -3160,16 +3180,19 @@ input {
     flex-direction: column;
   }
 
+  .connection-card {
+    grid-area: connection;
+  }
+
+  .clipboard-card {
+    height: auto;
+    overflow: visible;
+  }
+
   .files-card .file-list {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
-  }
-
-  .connection-card,
-  .clipboard-card {
-    height: auto;
-    overflow: visible;
   }
 
   .settings-page {
