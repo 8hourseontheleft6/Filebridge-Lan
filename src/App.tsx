@@ -220,7 +220,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className="sidebar-version">v1.5.6</span>
+          <span className="sidebar-version">v1.6.0 Preview 1</span>
           <span className="sidebar-mode">{activeMode === 'lan' ? '局域网直传' : '跨网络中继 · 实验'}</span>
         </div>
       </aside>

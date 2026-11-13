@@ -12,6 +12,7 @@
 
 - **手机免安装**：扫码打开网页即可上传/下载
 - **HTTP 直传**：流式上传、SHA-256、Range 下载、SSE 进度
+- **文字同步**：已批准连接内双向同步纯文本；默认关闭，仅主机本机可开启，内容只存内存
 - **两种模式**：局域网直传默认选中；跨网络中继（实验）单独入口
 - **电脑互联**：局域网自动发现附近电脑；主机确认后连接。另一台电脑也可直接用浏览器发起请求，无需安装
 - **网络类型门禁**：只有 Private/Domain 才启动 UDP 发现和局域网 Hub；公用网络弹窗提示修改，且关闭弹窗不能绕过门禁
@@ -32,7 +33,11 @@
 
 ![桌面主界面](docs/screenshots/desktop-1440.png)
 
-![桌面 900px](docs/screenshots/desktop-900.png)\n\n![手机上传页](docs/screenshots/mobile-390.png)\n\n![设置页](docs/screenshots/settings-1440.png)
+![桌面 900px](docs/screenshots/desktop-900.png)
+
+![手机上传页](docs/screenshots/mobile-390.png)
+
+![设置页](docs/screenshots/settings-1440.png)
 
 ![上传诊断与续传](docs/screenshots/upload-recovery.png)
 
@@ -41,14 +46,14 @@
 界面使用 Local Workbench 方向：固定侧栏、任务优先的卡片、Cambria 品牌与重点标题、Microsoft YaHei 中文和实际加载的 Inter 功能文本。上传诊断默认折叠；Safari 照片上传支持连续选择后统一上传。
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.5.6_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.6.0-preview.1_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.5.6_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.6.0-preview.1_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
 - 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080 + UDP 42081
@@ -56,7 +61,7 @@ npm run tauri build
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42080 + UDP 42081）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.5.6.md](docs/RELEASE-1.5.6.md)
+版本说明：[docs/RELEASE-1.6.0-preview.1.md](docs/RELEASE-1.6.0-preview.1.md)
 
 > 从旧版本升级：首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
@@ -88,6 +93,12 @@ BRIDGE_PUBLIC_URL=http://127.0.0.1:43000 npm run bridge
 5. 手机点下载直接走浏览器；电脑可保存到自定义下载目录
 
 配对码只用于换取 bearer token；文件列表、上传、下载、删除和 SSE 都校验 token。token 有效期 12 小时，Hub 重启或轮换配对码后失效。
+
+### 文字同步
+
+主机在传输页开启“文字同步”后，已批准的手机会看到电脑剪贴板的最新纯文本；手机可复制、从剪贴板读取、手动输入或发送文本，电脑会尝试写入系统剪贴板。单条文本上限 256 KiB。
+
+移动浏览器通常不允许后台静默复制或读取系统剪贴板：复制/读取失败时文本仍保留，可长按选择或手动粘贴。文字同步默认关闭，只存于 Hub 内存，断线、关闭同步或 Public 暂停时清空客户端缓存；内容不进入发现广播、URL、普通日志或上传诊断。协议与浏览器限制详见 [docs/CLIPBOARD.md](docs/CLIPBOARD.md)。
 
 ### 跨网络
 

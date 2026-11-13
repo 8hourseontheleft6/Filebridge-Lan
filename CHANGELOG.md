@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0-preview.1 - Preview
+
+- 新增已批准连接内的纯文本剪贴板同步；默认关闭，仅主机本机可开启，内容仅存内存
+- 手机端提供最新文本、复制、从剪贴板读取、手动输入/发送和清空回退；明确浏览器剪贴板权限限制
+- Node Hub 与 Rust Hub 新增同协议 `/api/clipboard` 与 `/api/clipboard/enabled`，含 256 KiB 限制、鉴权、限流和哈希去重
+- Windows 桌面端新增系统剪贴板读写，仅在同步开启、窗口聚焦、在线且非 Public 暂停时轮询
+- 文本不进入发现广播、URL、普通日志或上传诊断；断线/关闭/Public 暂停清理客户端缓存
+
 ## 1.5.6 - 2026-11-07
 
 - iPhone Safari 大文件上传与断点续传稳定版收尾；Fetch Blob、响应头后取消响应体、服务端真实 offset 和 SHA-256 校验保持
