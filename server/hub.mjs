@@ -68,6 +68,59 @@ const metaMap = new Map();
 /** @type {Set<import('node:http').ServerResponse>} */
 const sseClients = new Set();
 
+const CLIPBOARD_MAX_BYTES = 256 * 1024;
+const CLIPBOARD_WINDOW_MS = 60_000;
+const CLIPBOARD_MAX_WRITES_PER_WINDOW = 30;
+const CLIPBOARD_MAX_WRITES_PER_IP = 10;
+const clipboardState = {
+  enabled: false,
+  text: '',
+  hash: null,
+  updatedAt: null,
+  revision: 0,
+  source: null,
+};
+const clipboardWrites = { global: [], byIp: new Map() };
+
+function clipboardSnapshot() {
+  return {
+    enabled: clipboardState.enabled,
+    text: clipboardState.enabled && clipboardState.text ? clipboardState.text : null,
+    hash: clipboardState.enabled ? clipboardState.hash : null,
+    updatedAt: clipboardState.enabled ? clipboardState.updatedAt : null,
+    revision: clipboardState.revision,
+    source: clipboardState.enabled ? clipboardState.source : null,
+    maxBytes: CLIPBOARD_MAX_BYTES,
+  };
+}
+
+function clipboardRateLimited(ip) {
+  const now = Date.now();
+  const cutoff = now - CLIPBOARD_WINDOW_MS;
+  clipboardWrites.global = clipboardWrites.global.filter((value) => value > cutoff);
+  const recent = (clipboardWrites.byIp.get(ip) || []).filter((value) => value > cutoff);
+  if (clipboardWrites.global.length >= CLIPBOARD_MAX_WRITES_PER_WINDOW
+    || recent.length >= CLIPBOARD_MAX_WRITES_PER_IP) {
+    clipboardWrites.byIp.set(ip, recent);
+    return true;
+  }
+  clipboardWrites.global.push(now);
+  recent.push(now);
+  clipboardWrites.byIp.set(ip, recent);
+  return false;
+}
+
+function clipboardHash(text) {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function clearClipboard() {
+  clipboardState.text = '';
+  clipboardState.hash = null;
+  clipboardState.updatedAt = null;
+  clipboardState.source = null;
+  clipboardState.revision += 1;
+}
 function broadcastUpload(event) {
   const payload = `event: upload\ndata: ${JSON.stringify(event)}\n\n`;
   for (const client of sseClients) {
@@ -1022,6 +1075,79 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === '/api/clipboard/enabled' && req.method === 'POST') {
+    if (!requireToken(req, res, url)) return;
+    if (!isLoopback(req)) {
+      sendJson(res, 403, { error: '只有主机本机可以开启文字同步', code: 'clipboard_host_only' });
+      return;
+    }
+    let body;
+    try {
+      body = await readJson(req);
+    } catch {
+      sendJson(res, 400, { error: '请求格式错误', code: 'clipboard_bad_request' });
+      return;
+    }
+    if (typeof body.enabled !== 'boolean') {
+      sendJson(res, 400, { error: 'enabled 必须是布尔值', code: 'clipboard_bad_request' });
+      return;
+    }
+    clipboardState.enabled = body.enabled;
+    if (!body.enabled) clearClipboard();
+    sendJson(res, 200, clipboardSnapshot());
+    return;
+  }
+
+  if (pathname === '/api/clipboard' && req.method === 'GET') {
+    if (!requireToken(req, res, url)) return;
+    sendJson(res, 200, clipboardSnapshot());
+    return;
+  }
+
+  if (pathname === '/api/clipboard' && req.method === 'POST') {
+    if (!requireToken(req, res, url)) return;
+    const ip = req.socket.remoteAddress || 'unknown';
+    if (clipboardRateLimited(ip)) {
+      sendJson(res, 429, { error: '文字同步过于频繁，请稍后再试', code: 'clipboard_rate_limited' });
+      return;
+    }
+    if (!clipboardState.enabled) {
+      sendJson(res, 409, { error: '文字同步未开启', code: 'clipboard_disabled' });
+      return;
+    }
+    let body;
+    try {
+      body = await readJson(req, CLIPBOARD_MAX_BYTES * 2 + 4096);
+    } catch {
+      sendJson(res, 413, { error: '文本超过 256 KiB 限制', code: 'clipboard_too_large' });
+      return;
+    }
+    if (typeof body.text !== 'string' || (body.source !== 'desktop' && body.source !== 'phone')) {
+      sendJson(res, 400, { error: '请求必须包含 text 和 source', code: 'clipboard_bad_request' });
+      return;
+    }
+    if (Buffer.byteLength(body.text, 'utf8') > CLIPBOARD_MAX_BYTES) {
+      sendJson(res, 413, { error: '文本超过 256 KiB 限制', code: 'clipboard_too_large' });
+      return;
+    }
+    const hash = clipboardHash(body.text);
+    if (hash !== clipboardState.hash) {
+      clipboardState.text = body.text;
+      clipboardState.hash = hash;
+      clipboardState.updatedAt = Date.now();
+      clipboardState.source = body.source;
+      clipboardState.revision += 1;
+    }
+    sendJson(res, 200, clipboardSnapshot());
+    return;
+  }
+
+  if (pathname === '/api/clipboard' && req.method === 'DELETE') {
+    if (!requireToken(req, res, url)) return;
+    clearClipboard();
+    sendJson(res, 200, clipboardSnapshot());
+    return;
+  }
   if (pathname === '/api/files' && req.method === 'GET') {
     if (!requireToken(req, res, url)) return;
     const files = Array.from(metaMap.values()).sort((a, b) => b.createdAt - a.createdAt);

@@ -12,6 +12,7 @@ import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpl
 import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers, type NearbyPeer } from './NearbyComputers';
+import { ClipboardPanel } from './ClipboardPanel';
 
 const SESSION_STORAGE_KEY = 'filebridge_session_code';
 const TOKEN_STORAGE_KEY = 'filebridge_session_token';
@@ -2161,6 +2162,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           {desktop && pairingDetails}
         </article>
+
+        <ClipboardPanel
+          token={token}
+          desktop={desktop}
+          online={online}
+          publicPaused={publicPaused}
+        />
 
         <NearbyComputers
           onConnect={setPeerFrame}

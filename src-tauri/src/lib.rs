@@ -1,3 +1,5 @@
+pub mod clipboard;
+
 pub mod discovery;
 pub mod downloads;
 pub mod hub;
@@ -113,6 +115,8 @@ pub fn run() {
             lan_service::discovery_status,
             network_profile::network_profile_status,
             open_external,
+            clipboard::clipboard_read_text,
+            clipboard::clipboard_write_text,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

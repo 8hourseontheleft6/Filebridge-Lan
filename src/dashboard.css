@@ -3000,3 +3000,134 @@ input {
 .progress-idle .hint {
   font-size: 0.75rem;
 }
+/* Clipboard sync: a separate low-priority card, never inside transfer diagnostics. */
+.dashboard-grid {
+  grid-template-areas:
+    "files"
+    "progress"
+    "connection"
+    "clipboard"
+    "nearby";
+}
+
+.lan-dashboard:not(.has-nearby) .dashboard-grid {
+  grid-template-areas:
+    "files"
+    "progress"
+    "connection"
+    "clipboard";
+}
+
+.clipboard-card {
+  grid-area: clipboard;
+}
+
+.clipboard-off {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.clipboard-off .hint {
+  margin: 0;
+  flex: 1 1 240px;
+}
+
+.clipboard-latest {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px 12px;
+}
+
+.clipboard-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+.clipboard-text {
+  max-height: 170px;
+  min-height: 58px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.clipboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.clipboard-compose {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.clipboard-input {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.clipboard-input:focus {
+  outline: 2px solid rgba(47, 124, 246, 0.24);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+.clipboard-compose-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.clipboard-notice {
+  margin-top: 10px;
+  color: var(--success);
+  font-size: 0.76rem;
+}
+
+.clipboard-error {
+  margin-top: 10px;
+}
+
+@media (max-width: 860px) {
+  .dashboard-grid {
+    grid-template-areas:
+      "files"
+      "progress"
+      "connection"
+      "clipboard"
+      "nearby";
+  }
+
+  .lan-dashboard:not(.has-nearby) .dashboard-grid {
+    grid-template-areas:
+      "files"
+      "progress"
+      "connection"
+      "clipboard";
+  }
+}

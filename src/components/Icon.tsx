@@ -11,7 +11,8 @@ interface IconProps {
     | 'download'
     | 'alert'
     | 'check'
-    | 'device';
+    | 'device'
+    | 'copy';
   size?: number;
 }
 
@@ -68,6 +69,13 @@ export function Icon({ name, size = 18 }: IconProps) {
       return (
         <svg {...common}>
           <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+        </svg>
+      );
+    case 'copy':
+      return (
+        <svg {...common}>
+          <rect x="8" y="8" width="11" height="11" rx="2" />
+          <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
         </svg>
       );
     case 'close':

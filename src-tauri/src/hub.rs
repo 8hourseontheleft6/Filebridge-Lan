@@ -91,6 +91,8 @@ struct HubInner {
     connect_failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
     connect_global: Mutex<(u32, Instant)>,
     chunk_diags: Mutex<VecDeque<ChunkDiag>>,
+    clipboard: Mutex<ClipboardInner>,
+    clipboard_limiter: Mutex<ClipboardLimiter>,
 }
 
 #[derive(Clone, Serialize)]
@@ -112,6 +114,61 @@ pub struct ChunkDiag {
     pub status_code: Option<u16>,
 }
 
+const CLIPBOARD_MAX_BYTES: usize = 256 * 1024;
+const CLIPBOARD_WINDOW: Duration = Duration::from_secs(60);
+const CLIPBOARD_MAX_WRITES: usize = 30;
+const CLIPBOARD_MAX_WRITES_PER_IP: usize = 10;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardSnapshot {
+    pub enabled: bool,
+    pub text: Option<String>,
+    pub hash: Option<String>,
+    pub updated_at: Option<u64>,
+    pub revision: u64,
+    pub source: Option<String>,
+    pub max_bytes: usize,
+}
+
+struct ClipboardInner {
+    enabled: bool,
+    text: String,
+    hash: Option<String>,
+    updated_at: Option<u64>,
+    revision: u64,
+    source: Option<String>,
+}
+
+impl Default for ClipboardInner {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            text: String::new(),
+            hash: None,
+            updated_at: None,
+            revision: 0,
+            source: None,
+        }
+    }
+}
+
+struct ClipboardLimiter {
+    global: VecDeque<Instant>,
+    per_ip: HashMap<IpAddr, VecDeque<Instant>>,
+}
+
+#[derive(Deserialize)]
+struct ClipboardToggle {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct ClipboardWrite {
+    text: String,
+    source: String,
+}
+
 struct ConnectRequest {
     id: String,
     secret: String,
@@ -129,11 +186,16 @@ struct ConnectRequest {
 struct ApiError {
     status: StatusCode,
     message: String,
+    code: Option<&'static str>,
 }
 
 impl ApiError {
     fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self { status, message: message.into() }
+        Self { status, message: message.into(), code: None }
+    }
+
+    fn with_code(status: StatusCode, message: impl Into<String>, code: &'static str) -> Self {
+        Self { status, message: message.into(), code: Some(code) }
     }
 
     fn bad_request(message: impl Into<String>) -> Self {
@@ -155,7 +217,11 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(serde_json::json!({ "error": self.message }))).into_response()
+        let mut payload = serde_json::json!({ "error": self.message });
+        if let Some(code) = self.code {
+            payload["code"] = serde_json::Value::String(code.to_string());
+        }
+        (self.status, Json(payload)).into_response()
     }
 }
 
@@ -187,6 +253,46 @@ impl HubState {
             total,
             status: status.to_string(),
         });
+    }
+
+    async fn clipboard_snapshot(&self) -> ClipboardSnapshot {
+        let data = self.inner.clipboard.lock().await;
+        let enabled = data.enabled;
+        ClipboardSnapshot {
+            enabled,
+            text: if enabled && !data.text.is_empty() { Some(data.text.clone()) } else { None },
+            hash: if enabled { data.hash.clone() } else { None },
+            updated_at: if enabled { data.updated_at } else { None },
+            revision: data.revision,
+            source: if enabled { data.source.clone() } else { None },
+            max_bytes: CLIPBOARD_MAX_BYTES,
+        }
+    }
+
+    async fn clear_clipboard(&self) {
+        let mut data = self.inner.clipboard.lock().await;
+        data.text.clear();
+        data.hash = None;
+        data.updated_at = None;
+        data.source = None;
+        data.revision += 1;
+    }
+
+    async fn clipboard_rate_limited(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mut limiter = self.inner.clipboard_limiter.lock().await;
+        limiter.global.retain(|value| now.duration_since(*value) < CLIPBOARD_WINDOW);
+        if limiter.global.len() >= CLIPBOARD_MAX_WRITES {
+            return true;
+        }
+        limiter.global.push_back(now);
+        let entries = limiter.per_ip.entry(ip).or_default();
+        entries.retain(|value| now.duration_since(*value) < CLIPBOARD_WINDOW);
+        if entries.len() >= CLIPBOARD_MAX_WRITES_PER_IP {
+            return true;
+        }
+        entries.push_back(now);
+        false
     }
 
     async fn diag_start(&self, diag: ChunkDiag) {
@@ -282,6 +388,11 @@ pub async fn new(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> std::io::Re
             connect_failures: Mutex::new(HashMap::new()),
             connect_global: Mutex::new((0, Instant::now())),
             chunk_diags: Mutex::new(VecDeque::new()),
+            clipboard: Mutex::new(ClipboardInner::default()),
+            clipboard_limiter: Mutex::new(ClipboardLimiter {
+                global: VecDeque::new(),
+                per_ip: HashMap::new(),
+            }),
         }),
     })
 }
@@ -301,6 +412,11 @@ pub fn router(state: HubState) -> Router {
         )
         .route("/events", get(sse_events))
         .route("/files/{id}", get(download).delete(delete_file))
+        .route(
+            "/clipboard",
+            get(clipboard_get).post(clipboard_post).delete(clipboard_clear),
+        )
+        .route("/clipboard/enabled", post(clipboard_enable))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     let api = Router::new()
@@ -931,6 +1047,87 @@ async fn rotate_session(
     Ok(Json(SessionInfo { code }))
 }
 
+async fn clipboard_get(State(state): State<HubState>) -> Json<ClipboardSnapshot> {
+    Json(state.clipboard_snapshot().await)
+}
+
+async fn clipboard_enable(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ClipboardToggle>,
+) -> ApiResult<Json<ClipboardSnapshot>> {
+    if !addr.ip().is_loopback() {
+        return Err(ApiError::with_code(
+            StatusCode::FORBIDDEN,
+            "只有主机本机可以开启文字同步",
+            "clipboard_host_only",
+        ));
+    }
+    {
+        let mut data = state.inner.clipboard.lock().await;
+        data.enabled = body.enabled;
+    }
+    if !body.enabled {
+        state.clear_clipboard().await;
+    }
+    Ok(Json(state.clipboard_snapshot().await))
+}
+
+async fn clipboard_post(
+    State(state): State<HubState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ClipboardWrite>,
+) -> ApiResult<Json<ClipboardSnapshot>> {
+    if body.source != "desktop" && body.source != "phone" {
+        return Err(ApiError::with_code(
+            StatusCode::BAD_REQUEST,
+            "source 必须是 desktop 或 phone",
+            "clipboard_bad_request",
+        ));
+    }
+    if body.text.len() > CLIPBOARD_MAX_BYTES {
+        return Err(ApiError::with_code(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "文本超过 256 KiB 限制",
+            "clipboard_too_large",
+        ));
+    }
+    {
+        let data = state.inner.clipboard.lock().await;
+        if !data.enabled {
+            return Err(ApiError::with_code(
+                StatusCode::CONFLICT,
+                "文字同步未开启",
+                "clipboard_disabled",
+            ));
+        }
+    }
+    if state.clipboard_rate_limited(addr.ip()).await {
+        return Err(ApiError::with_code(
+            StatusCode::TOO_MANY_REQUESTS,
+            "文字同步过于频繁，请稍后再试",
+            "clipboard_rate_limited",
+        ));
+    }
+    let hash = format!("{:x}", Sha256::digest(body.text.as_bytes()));
+    {
+        let mut data = state.inner.clipboard.lock().await;
+        if data.hash.as_deref() != Some(hash.as_str()) {
+            data.text = body.text;
+            data.hash = Some(hash);
+            data.updated_at = Some(now_ms());
+            data.source = Some(body.source);
+            data.revision += 1;
+        }
+    }
+    Ok(Json(state.clipboard_snapshot().await))
+}
+
+async fn clipboard_clear(State(state): State<HubState>) -> Json<ClipboardSnapshot> {
+    state.clear_clipboard().await;
+    Json(state.clipboard_snapshot().await)
+}
+
 async fn get_info(State(state): State<HubState>) -> Json<Info> {
     let files = state.inner.files.read().await.len();
     let mut ips: Vec<String> = state
@@ -1556,6 +1753,129 @@ mod tests {
         assert!(parse_range("bytes=4096-", 2048).is_err());
         assert!(parse_range("bytes=-0", 2048).is_err());
         assert!(parse_range("nonsense", 2048).is_err());
+    }
+
+    #[tokio::test]
+    async fn clipboard_contract_enforces_state_dedupe_and_limits() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!(".filebridge-clipboard-test-{}", Uuid::new_v4()));
+        let state = new(0, root.clone(), root.join("dist")).await.expect("hub state");
+        let loopback = ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0)));
+        let remote = ConnectInfo(SocketAddr::from(([192, 0, 2, 10], 0)));
+
+        let denied = clipboard_enable(
+            State(state.clone()),
+            remote,
+            Json(ClipboardToggle { enabled: true }),
+        )
+        .await
+        .expect_err("remote enable must fail");
+        assert_eq!(denied.status, StatusCode::FORBIDDEN);
+        assert_eq!(denied.code, Some("clipboard_host_only"));
+
+        let enabled = clipboard_enable(
+            State(state.clone()),
+            loopback,
+            Json(ClipboardToggle { enabled: true }),
+        )
+        .await
+        .expect("loopback enable")
+        .0;
+        assert!(enabled.enabled);
+
+        let first = clipboard_post(
+            State(state.clone()),
+            loopback,
+            Json(ClipboardWrite {
+                text: "clipboard contract".to_string(),
+                source: "phone".to_string(),
+            }),
+        )
+        .await
+        .expect("write")
+        .0;
+        assert_eq!(first.text.as_deref(), Some("clipboard contract"));
+        assert_eq!(first.source.as_deref(), Some("phone"));
+        assert!(first.hash.is_some());
+
+        let duplicate = clipboard_post(
+            State(state.clone()),
+            loopback,
+            Json(ClipboardWrite {
+                text: "clipboard contract".to_string(),
+                source: "desktop".to_string(),
+            }),
+        )
+        .await
+        .expect("duplicate")
+        .0;
+        assert_eq!(duplicate.revision, first.revision, "duplicate text must not bump revision");
+
+        let oversized = clipboard_post(
+            State(state.clone()),
+            loopback,
+            Json(ClipboardWrite {
+                text: "x".repeat(CLIPBOARD_MAX_BYTES + 1),
+                source: "phone".to_string(),
+            }),
+        )
+        .await
+        .expect_err("oversized text must fail");
+        assert_eq!(oversized.status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(oversized.code, Some("clipboard_too_large"));
+
+        let cleared = clipboard_clear(State(state.clone())).await.0;
+        assert!(cleared.text.is_none());
+
+        let disabled = clipboard_enable(
+            State(state.clone()),
+            loopback,
+            Json(ClipboardToggle { enabled: false }),
+        )
+        .await
+        .expect("disable")
+        .0;
+        assert!(!disabled.enabled);
+        assert!(disabled.text.is_none());
+
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn clipboard_rate_limit_rejects_bursts() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!(".filebridge-clipboard-rate-{}", Uuid::new_v4()));
+        let state = new(0, root.clone(), root.join("dist")).await.expect("hub state");
+        let loopback = ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0)));
+        clipboard_enable(
+            State(state.clone()),
+            loopback,
+            Json(ClipboardToggle { enabled: true }),
+        )
+        .await
+        .expect("enable");
+        let mut limited = false;
+        for index in 0..12 {
+            let result = clipboard_post(
+                State(state.clone()),
+                loopback,
+                Json(ClipboardWrite {
+                    text: format!("burst {index}"),
+                    source: "phone".to_string(),
+                }),
+            )
+            .await;
+            if let Err(error) = result {
+                assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+                assert_eq!(error.code, Some("clipboard_rate_limited"));
+                limited = true;
+                break;
+            }
+        }
+        assert!(limited, "burst writes must hit the per-IP limiter");
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[tokio::test]

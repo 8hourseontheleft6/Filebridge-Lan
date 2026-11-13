@@ -243,6 +243,50 @@ async function main() {
     assert.notEqual(phone.token, desktop.token);
     console.log('PASS pairing tokens');
 
+    const clipboardHeaders = { Authorization: `Bearer ${desktop.token}`, 'Content-Type': 'application/json' };
+    const noAuthClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`);
+    assert.equal(noAuthClipboard.status, 401);
+    const disabledClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'disabled', source: 'phone' }),
+    });
+    assert.equal(disabledClipboard.status, 409);
+    const remoteEnable = await fetch(`${lanOrigin}/api/clipboard/enabled`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: true }),
+    });
+    assert.equal(remoteEnable.status, 403);
+    const enableClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard/enabled`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: true }),
+    });
+    assert.equal(enableClipboard.status, 200);
+    const clipboardSecret = 'clipboard-smoke-secret-7f3c';
+    const sentClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: clipboardSecret, source: 'phone' }),
+    });
+    assert.equal(sentClipboard.status, 200);
+    const clipboardSnapshot = await sentClipboard.json();
+    assert.equal(clipboardSnapshot.enabled, true);
+    assert.equal(clipboardSnapshot.text, clipboardSecret);
+    assert.match(clipboardSnapshot.hash, /^[a-f0-9]{64}$/);
+    const duplicateClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: clipboardSecret, source: 'desktop' }),
+    });
+    const duplicateSnapshot = await duplicateClipboard.json();
+    assert.equal(duplicateSnapshot.revision, clipboardSnapshot.revision, 'duplicate text must not bump revision');
+    const oversizedClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders,
+      body: JSON.stringify({ text: 'x'.repeat(256 * 1024 + 1), source: 'phone' }),
+    });
+    assert.equal(oversizedClipboard.status, 413);
+    const clearClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, { method: 'DELETE', headers: clipboardHeaders });
+    assert.equal(clearClipboard.status, 200);
+    assert.equal((await clearClipboard.json()).text, null);
+    const disableClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard/enabled`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: false }),
+    });
+    assert.equal(disableClipboard.status, 200);
+    assert.equal((await disableClipboard.json()).enabled, false);
+    assert.ok(!output.includes(clipboardSecret), 'clipboard text must never be logged');
+    console.log('PASS clipboard auth/limit/clear/dedupe/no-log');
     await readSseHeartbeat(port, desktop.token);
     console.log('PASS SSE heartbeat');
 
