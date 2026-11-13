@@ -3214,3 +3214,89 @@ input {
     margin: 0;
   }
 }
+/* Usage guide: a workbench sheet settles in, then releases faster on close. */
+.help-overlay {
+  animation: help-backdrop-in 180ms ease-out both;
+}
+
+.help-dialog {
+  transform-origin: 50% 0;
+  animation: help-dialog-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.help-dialog .guide-grid > div {
+  animation: help-guide-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.help-dialog .guide-grid > div:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.help-dialog .guide-grid > div:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.help-overlay.is-closing {
+  pointer-events: none;
+  animation: help-backdrop-out 180ms ease-in both;
+}
+
+.help-overlay.is-closing .help-dialog {
+  animation: help-dialog-out 160ms ease-in both;
+}
+
+.help-overlay.is-closing .guide-grid > div {
+  animation: none;
+}
+
+@keyframes help-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes help-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes help-guide-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes help-backdrop-out {
+  to { opacity: 0; }
+}
+
+@keyframes help-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-overlay,
+  .help-dialog,
+  .help-dialog .guide-grid > div {
+    animation: none;
+  }
+
+  .help-overlay.is-closing,
+  .help-overlay.is-closing .help-dialog {
+    opacity: 0;
+    transition: opacity 120ms linear;
+  }
+}

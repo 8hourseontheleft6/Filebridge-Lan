@@ -56,6 +56,8 @@ export default function App() {
   const desktop = isTauriHost();
   const [view, setView] = useState<AppView>('transfer');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [helpClosing, setHelpClosing] = useState(false);
+  const helpCloseTimerRef = useRef<number | null>(null);
   const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
   const [lanServiceStatus, setLanServiceStatus] = useState<LanServiceStatus | null>(null);
   const [networkChecking, setNetworkChecking] = useState(false);
@@ -175,14 +177,39 @@ export default function App() {
     );
   }
 
+  const closeHelp = useCallback(() => {
+    if (helpCloseTimerRef.current !== null) return;
+    setHelpClosing(true);
+    helpCloseTimerRef.current = window.setTimeout(() => {
+      setHelpOpen(false);
+      setHelpClosing(false);
+      helpCloseTimerRef.current = null;
+    }, 180);
+  }, []);
+
+  const openHelp = useCallback(() => {
+    if (helpCloseTimerRef.current !== null) {
+      window.clearTimeout(helpCloseTimerRef.current);
+      helpCloseTimerRef.current = null;
+    }
+    setHelpClosing(false);
+    setHelpOpen(true);
+  }, []);
+
+  useEffect(() => () => {
+    if (helpCloseTimerRef.current !== null) {
+      window.clearTimeout(helpCloseTimerRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     if (!helpOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setHelpOpen(false);
+      if (event.key === 'Escape') closeHelp();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [helpOpen]);
+  }, [closeHelp, helpOpen]);
 
   return (
     <div className="app app-shell">
@@ -203,7 +230,7 @@ export default function App() {
             <span className="side-nav-icon"><Icon name="transfer" size={17} /></span>
             <span className="side-nav-label">传输</span>
           </button>
-          <button type="button" className="side-nav-item" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
+          <button type="button" className="side-nav-item" onClick={openHelp} aria-haspopup="dialog">
             <span className="side-nav-icon"><Icon name="help" size={17} /></span>
             <span className="side-nav-label">使用说明</span>
           </button>
@@ -289,9 +316,9 @@ export default function App() {
 
       {helpOpen && (
         <div
-          className="help-overlay"
+          className={`help-overlay${helpClosing ? ' is-closing' : ''}`}
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setHelpOpen(false);
+            if (event.target === event.currentTarget) closeHelp();
           }}
         >
           <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
@@ -305,7 +332,7 @@ export default function App() {
                 className="btn btn-icon help-close"
                 aria-label="关闭使用说明"
                 autoFocus
-                onClick={() => setHelpOpen(false)}
+                onClick={closeHelp}
               >
                 <Icon name="close" size={15} />
               </button>
