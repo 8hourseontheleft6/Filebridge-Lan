@@ -3339,3 +3339,30 @@ input {
     min-width: 44px;
   }
 }
+/* Onboard pass: make the resting state read as ready, not a failed measurement. */
+.progress-card.is-idle .rate-value,
+.progress-card.is-idle .rate-peak,
+.progress-card.is-idle .rate-total {
+  color: var(--text-dim);
+}
+
+.progress-card.is-idle .rate-value {
+  font-weight: 600;
+}
+
+.progress-card.is-idle .rate-chart {
+  opacity: 0.35;
+}
+
+.progress-card.is-idle .rate-grid {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.files-card:has(.file-list:empty) .drop-zone {
+  min-height: 132px;
+}
+
+.empty-state {
+  color: var(--text-dim);
+}
