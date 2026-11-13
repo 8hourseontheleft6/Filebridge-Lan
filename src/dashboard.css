@@ -3136,10 +3136,10 @@ input {
   display: contents;
 }
 
-/* Annotation follow-up: primary work cards share one fixed row on wide desktops. */
-@media (min-width: 1180px) {
+/* Annotation follow-up: primary work cards share one fixed row on desktops. */
+@media (min-width: 900px) {
   .dashboard-grid {
-    grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr);
+    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 1fr);
     grid-template-areas:
       "left right"
       "nearby nearby";
@@ -3199,7 +3199,9 @@ input {
     min-height: 0;
     overflow: auto;
   }
+}
 
+@media (min-width: 1180px) {
   .settings-page {
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
