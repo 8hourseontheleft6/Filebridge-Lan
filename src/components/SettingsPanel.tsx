@@ -178,7 +178,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <BrandMark variant="app" size={38} className="about-mark" />
           <div>
             <strong>Filebridge-Lan</strong>
-            <span>版本 1.6.0 Preview 2</span>
+            <span>版本 1.6.0 Preview 3</span>
           </div>
           <button
             type="button"

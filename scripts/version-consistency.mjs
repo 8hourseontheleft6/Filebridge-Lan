@@ -18,6 +18,14 @@ assert.equal(tauri.version, pkg.version, 'tauri version');
 assert.equal(cargoVersion, pkg.version, 'Cargo.toml version');
 assert.equal(lockVersion, pkg.version, 'Cargo.lock package version');
 
+// The UI prints the version by hand; keep it in step with package.json.
+const label = pkg.version.replace(/^(\d+\.\d+\.\d+)-preview\.(\d+)$/, '$1 Preview $2');
+assert.match(label, /^\d+\.\d+\.\d+ Preview \d+$/, 'unexpected version shape for the UI label');
+for (const rel of ['src/App.tsx', 'src/components/SettingsPanel.tsx']) {
+  const source = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  assert.ok(source.includes(label), `${rel} must show ${label}`);
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
