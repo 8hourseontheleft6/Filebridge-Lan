@@ -1542,7 +1542,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       ? liveSpeed
       : 0;
   const effectiveDownloadSpeed = activeDownload ? downloadSpeed : 0;
-  const hasActiveTransfer = Boolean(upload || visibleLiveUpload || activeDownload);
   const [uploadPeak, setUploadPeak] = useState(0);
   const [downloadPeak, setDownloadPeak] = useState(0);
   const [shownUploadSpeed, setShownUploadSpeed] = useState(0);
@@ -1576,6 +1575,12 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     ],
     (key) => key,
   );
+  // The upload readout behaves like the save one: it leaves once the upload is done.
+  const uploadBlocks = usePresenceList(
+    upload && upload.status !== 'done' ? ['upload'] : [],
+    (key) => key,
+  );
+  const hasActiveTransfer = Boolean(uploadBlocks.length > 0 || visibleLiveUpload || activeDownload);
 
   useEffect(() => {
     if (!upload) return;
@@ -2067,8 +2072,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             history={uploadHistory}
             tone="blue"
           >
-            {upload && (
-              <div className="reveal">
+            {upload && uploadBlocks.map(({ key, leaving }) => (
+              <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
                 <div className="progress-block">
                   <div className="progress-row">
                     <span className="progress-title">
@@ -2125,7 +2130,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   </div>
                 </div>
               </div>
-            )}
+            ))}
           </RateCard>
 
           <RateCard
