@@ -54,7 +54,6 @@ function BackToTop() {
 }
 
 export default function App() {
-  const desktop = isTauriHost();
   const [view, setView] = useState<AppView>('transfer');
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpClosing, setHelpClosing] = useState(false);
@@ -285,15 +284,10 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1 className={view === 'settings' ? 'settings-title' : undefined}>{view === 'settings' ? '设置' : activeMode === 'lan' ? '文件传输' : '跨网络中继'}</h1>
-            <p className="topbar-subtitle">
-              {view === 'settings'
-                ? '下载目录与应用信息。'
-                : activeMode === 'lan'
-                  ? desktop
-                    ? '同一 WiFi，手机扫码即可收发文件。'
-                    : '在同一 WiFi 下，与电脑互传文件。'
-                  : '自建 HTTPS Relay，端到端加密的跨网络传输。'}
-            </p>
+            {view === 'settings' && <p className="topbar-subtitle">下载目录与应用信息。</p>}
+            {view !== 'settings' && activeMode === 'relay' && (
+              <p className="topbar-subtitle">自建 HTTPS Relay，端到端加密的跨网络传输。</p>
+            )}
           </div>
           <div className="topbar-actions">
             {view === 'settings' ? (

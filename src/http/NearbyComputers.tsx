@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauriHost } from '../lib/hub';
 import { Icon } from '../components/Icon';
@@ -36,6 +36,22 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
   const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null);
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState('');
+  const [refreshSpinning, setRefreshSpinning] = useState(false);
+  const refreshSpinTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
+  }, []);
+
+  const spinRefresh = () => {
+    if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
+    setRefreshSpinning(false);
+    window.requestAnimationFrame(() => setRefreshSpinning(true));
+    refreshSpinTimerRef.current = window.setTimeout(() => {
+      setRefreshSpinning(false);
+      refreshSpinTimerRef.current = null;
+    }, 620);
+  };
 
   const refresh = useCallback(async () => {
     if (!desktop) return;
@@ -68,7 +84,6 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
     : error
       ? '发现服务不可用'
       : '';
-  const sendTargetCount = discovery?.sendTargets?.length || 0;
   const currentError = discovery?.currentError;
 
   return (
@@ -80,8 +95,14 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
         </div>
         <div className="card-actions">
           {peers.length > 0 && <span className="count-badge">{peers.length}</span>}
-          <button type="button" className="btn btn-ghost btn-small" onClick={() => void refresh()}>
-            刷新
+          <button
+            type="button"
+            className="btn btn-ghost btn-small btn-icon-refresh"
+            aria-label="刷新附近电脑"
+            title="刷新"
+            onClick={() => { spinRefresh(); void refresh(); }}
+          >
+            <Icon name="refresh" size={14} className={refreshSpinning ? 'is-spinning' : undefined} />
           </button>
         </div>
       </div>
@@ -99,11 +120,6 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
       ) : peers.length === 0 ? (
         <div className="nearby-empty">
           <span>暂时没有发现其他电脑 · 确认同一子网且为专用网络</span>
-          {discovery?.bound && (
-            <span className="nearby-diagnostic">
-              UDP 42081 已监听 · {sendTargetCount} 个发送目标
-            </span>
-          )}
         </div>
       ) : (
         <div className="nearby-list">
@@ -125,9 +141,6 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
               )}
             </div>
           ))}
-          <span className="nearby-diagnostic">
-            UDP 42081 · {sendTargetCount} 个发送目标
-          </span>
         </div>
       )}
 

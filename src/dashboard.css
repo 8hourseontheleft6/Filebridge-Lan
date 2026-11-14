@@ -3353,3 +3353,133 @@ input {
 .empty-state {
   color: var(--text-dim);
 }
+/*
+ * Annotation pass: one corner radius for every card state, equal column
+ * bottoms, a taller wave, and a smooth reveal when the file list appears.
+ * These overrides are last so all earlier state-specific radii lose.
+ */
+:root {
+  --card-radius: 22px;
+}
+
+.app.app-shell .card,
+.help-dialog,
+.lan-paused-card,
+.network-warning-card,
+.approval-card {
+  border-radius: var(--card-radius);
+}
+
+.qr-code,
+.clipboard-latest,
+.clipboard-input,
+.pending-files,
+.connected-phone-line,
+.drop-zone {
+  border-radius: 14px;
+}
+
+/* Equal bottoms for cards that share a grid row, in every content state. */
+@media (min-width: 900px) {
+  .dashboard-grid,
+  .lan-dashboard:not(.has-nearby) .dashboard-grid {
+    align-items: stretch;
+  }
+
+  .dashboard-grid > .card,
+  .clipboard-card {
+    align-self: stretch;
+  }
+
+  .files-card,
+  .progress-card,
+  .connection-card,
+  .nearby-card {
+    height: 100%;
+  }
+
+  .files-card,
+  .progress-card {
+    min-height: 260px;
+  }
+
+  .progress-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+}
+
+/* Larger upload/download wave: keep the reading text, grow the chart band. */
+.rate-card,
+.rate-card.blue,
+.rate-card.green {
+  height: 150px;
+  padding: 10px 0;
+}
+
+.rate-chart {
+  height: 76px;
+}
+
+.rate-value {
+  font-size: 1.45rem;
+  margin-top: 9px;
+}
+
+/* File list used to pop in and shove its row taller; reveal it smoothly. */
+.file-list-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 220ms ease,
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-list-wrap.has-files {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  margin-top: 13px;
+}
+
+.file-list-wrap > .file-list {
+  min-height: 0;
+  margin-top: 0;
+  overflow: auto;
+}
+
+.files-card:has(.file-list-wrap:not(.has-files)) .drop-zone {
+  min-height: 132px;
+}
+
+/* Refresh controls are icon-only; one turn confirms the click. */
+.btn-icon-refresh {
+  min-width: 32px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.btn-icon-refresh svg.is-spinning {
+  animation: refresh-spin 620ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: 50% 50%;
+}
+
+@keyframes refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-list-wrap {
+    transition: none;
+  }
+
+  .btn-icon-refresh svg.is-spinning {
+    animation: none;
+  }
+}

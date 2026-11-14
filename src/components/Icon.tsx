@@ -12,11 +12,13 @@ interface IconProps {
     | 'alert'
     | 'check'
     | 'device'
-    | 'copy';
+    | 'copy'
+    | 'refresh';
   size?: number;
+  className?: string;
 }
 
-export function Icon({ name, size = 18 }: IconProps) {
+export function Icon({ name, size = 18, className }: IconProps) {
   const common = {
     width: size,
     height: size,
@@ -26,6 +28,7 @@ export function Icon({ name, size = 18 }: IconProps) {
     strokeWidth: 1.8,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
+    className,
     'aria-hidden': true,
     focusable: false,
   };
@@ -107,6 +110,13 @@ export function Icon({ name, size = 18 }: IconProps) {
       return (
         <svg {...common}>
           <path d="m5 12 4.5 4.5L19 7" />
+        </svg>
+      );
+    case 'refresh':
+      return (
+        <svg {...common}>
+          <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+          <path d="M20 4v7h-7" />
         </svg>
       );
     case 'device':

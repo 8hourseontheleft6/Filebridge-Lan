@@ -248,6 +248,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const [sessionReady, setSessionReady] = useState(false);
   const [showCode, setShowCode] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const [refreshSpinning, setRefreshSpinning] = useState(false);
+  const refreshSpinTimerRef = useRef<number | null>(null);
   const [peerFrame, setPeerFrame] = useState<NearbyPeer | null>(null);
   const [peerState, setPeerState] = useState<'waiting' | 'connected'>('waiting');
   const peerFrameRef = useRef<HTMLIFrameElement>(null);
@@ -456,6 +458,21 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       window.clearTimeout(timeout);
     }
   }, [sessionReady, token]);
+
+  const spinRefresh = useCallback(() => {
+    if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
+    setRefreshSpinning(false);
+    // Restart the one-shot spin even when the button is pressed repeatedly.
+    window.requestAnimationFrame(() => setRefreshSpinning(true));
+    refreshSpinTimerRef.current = window.setTimeout(() => {
+      setRefreshSpinning(false);
+      refreshSpinTimerRef.current = null;
+    }, 620);
+  }, []);
+
+  useEffect(() => () => {
+    if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!online || !token || !sessionReady) return;
@@ -1474,6 +1491,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const hasActiveTransfer = Boolean(upload || visibleLiveUpload || activeDownload);
   const [uploadPeak, setUploadPeak] = useState(0);
   const [downloadPeak, setDownloadPeak] = useState(0);
+  const [shownUploadSpeed, setShownUploadSpeed] = useState(0);
+  const [shownDownloadSpeed, setShownDownloadSpeed] = useState(0);
   const [uploadHistory, setUploadHistory] = useState<number[]>(() => Array(24).fill(0));
   const [downloadHistory, setDownloadHistory] = useState<number[]>(() => Array(24).fill(0));
   const [uploadTotal, setUploadTotal] = useState(0);
@@ -1517,38 +1536,21 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   }, [activeDownload]);
 
   useEffect(() => {
-    if (effectiveUploadSpeed > 0) {
-      setUploadPeak((value) => Math.max(value, effectiveUploadSpeed));
-      setUploadHistory((values) => [...values.slice(-23), effectiveUploadSpeed]);
-    }
-  }, [effectiveUploadSpeed]);
-
-  useEffect(() => {
-    if (effectiveDownloadSpeed > 0) {
-      setDownloadPeak((value) => Math.max(value, effectiveDownloadSpeed));
-      setDownloadHistory((values) => [...values.slice(-23), effectiveDownloadSpeed]);
-    }
-  }, [effectiveDownloadSpeed]);
-
-  useEffect(() => {
     const timer = window.setInterval(() => {
       const up = uploadSpeedRef.current;
       const down = downloadSpeedRef.current;
+      setShownUploadSpeed(up);
+      setShownDownloadSpeed(down);
       setUploadPeak((value) => Math.max(value, up));
       setDownloadPeak((value) => Math.max(value, down));
       setUploadHistory((values) => [...values.slice(-23), up]);
       setDownloadHistory((values) => [...values.slice(-23), down]);
-    }, 500);
+    }, 400);
     return () => window.clearInterval(timer);
   }, []);
 
   const allSelected = files.length > 0 && files.every((file) => selectedIds.has(file.id));
 
-  const pairingLabel = token
-    ? '已配对'
-    : codeError
-      ? '授权已过期'
-      : '未配对';
   const canRotate = desktop
     || window.location.hostname === 'localhost'
     || window.location.hostname === '127.0.0.1';
@@ -1577,7 +1579,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     <details className="pairing-details" open={!token || undefined}>
       <summary>
         手动连接 / 连接详情
-        <span className={`pairing-state${token ? ' ok' : ''}`}>{pairingLabel}</span>
       </summary>
       <div className="pairing-body">
         {sessionCode && (
@@ -1777,8 +1778,14 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   <Icon name="folder" size={14} /> 打开
                 </button>
               )}
-              <button type="button" className="btn btn-ghost btn-small" onClick={() => void refresh()}>
-                刷新
+              <button
+                type="button"
+                className="btn btn-ghost btn-small btn-icon-refresh"
+                aria-label="刷新文件列表"
+                title="刷新"
+                onClick={() => { spinRefresh(); void refresh(); }}
+              >
+                <Icon name="refresh" size={14} className={refreshSpinning ? 'is-spinning' : undefined} />
               </button>
             </div>
           </div>
@@ -1889,8 +1896,9 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           {error && <p className="text-error form-error">{error}</p>}
 
-          <div className="file-list">
-            {files.map((file) => (
+          <div className={`file-list-wrap${files.length > 0 ? ' has-files' : ''}`}>
+            <div className="file-list">
+              {files.map((file) => (
                 <div key={file.id} className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
                   <input
                     type="checkbox"
@@ -1963,13 +1971,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   </div>
                 </div>
               ))}
+            </div>
           </div>
         </article>
 
         <article className={`card progress-card${hasActiveTransfer ? '' : ' is-idle'}`}>
           <div className="card-head">
             <div>
-              <h2>传输进度</h2>
               {hasActiveTransfer && <p>上传、接收和保存的实时状态。</p>}
             </div>
             {!hasActiveTransfer && <span className="status-pill warn">空闲</span>}
@@ -1979,7 +1987,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             <RateCard
               label="上传"
               icon="↑"
-              speed={effectiveUploadSpeed}
+              speed={shownUploadSpeed}
               peak={uploadPeak}
               total={uploadTotal}
               history={uploadHistory}
@@ -1988,7 +1996,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             <RateCard
               label="下载"
               icon="↓"
-              speed={effectiveDownloadSpeed}
+              speed={shownDownloadSpeed}
               peak={downloadPeak}
               total={downloadTotal}
               history={downloadHistory}
@@ -2132,7 +2140,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 url={phoneUrl}
                 displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
                 title="手机扫码打开"
-                subtitle="配对码已自动带入，无需手动输入"
                 actions={(
                   <button
                     type="button"
