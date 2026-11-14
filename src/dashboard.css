@@ -4124,3 +4124,71 @@ input {
     animation: none;
   }
 }
+
+/* Help dialog: numbered usage steps instead of a region legend. */
+.help-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: help-step;
+  display: grid;
+  gap: 14px;
+}
+
+.help-steps > li {
+  counter-increment: help-step;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.help-steps > li::before {
+  content: counter(help-step);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.help-steps strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.help-steps p {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.help-steps code,
+.help-dialog .security-note code {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: #2c60a8;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 560px) {
+  .help-steps > li {
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 8px;
+  }
+}

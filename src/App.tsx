@@ -348,7 +348,7 @@ export default function App() {
             <div className="help-head">
               <div>
                 <h2 id="help-title">使用说明</h2>
-                <p>文件列表、扫码连接、传输进度分别负责什么。</p>
+                <p>扫码、选文件、保存，几步就能传完。</p>
               </div>
               <button
                 type="button"
@@ -360,23 +360,47 @@ export default function App() {
                 <Icon name="close" size={15} />
               </button>
             </div>
-            <div className="guide-grid">
-              <div>
-                <h3>文件列表</h3>
-                <p>在这里选择、拖入、勾选批量保存或删除文件。手机上传的文件会先写入电脑的数据目录。</p>
-              </div>
-              <div>
-                <h3>扫码连接</h3>
-                <p>同一 WiFi 下让手机扫码，配对码会自动带入；扫码失败时可展开手动连接。</p>
-              </div>
-              <div>
-                <h3>进度与速率</h3>
-                <p>上传、接收和保存时的实时进度、速度与剩余时间都会显示在传输进度卡中。</p>
-              </div>
-            </div>
+            <ol className="help-steps">
+              <li>
+                <div>
+                  <strong>连上同一个局域网</strong>
+                  <p>电脑打开应用，保持默认的「局域网直传」；手机或其他电脑连同一个 WiFi / 网段。</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>手机扫码打开</strong>
+                  <p>用手机扫「扫码连接」里的二维码，配对码会自动带入。扫不了就展开「手动连接 / 连接详情」，输入 6 位配对码。</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>选择要传的文件</strong>
+                  <p>手机上点「选择文件」，可一次选多个；电脑上把文件拖到窗口任意位置，或点文件列表右上角的 +。</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>保存到本机</strong>
+                  <p>电脑端点文件右侧「保存」，手机端点文件右侧的下载图标。文件默认在 <code>Downloads/Filebridge-Lan</code>，可在设置里改下载目录。</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>看进度，可取消重试</strong>
+                  <p>上传、接收、保存的进度和速度显示在右侧「上传」「下载」卡片里。传输中点圆形取消按钮，取消后点同位置的刷新按钮重新上传。</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>可选：电脑互传与文字同步</strong>
+                  <p>同网段的电脑会出现在「附近电脑」，点「连接」后需在对方电脑上批准；打开「文字同步」可在已批准连接之间互发纯文本。</p>
+                </div>
+              </li>
+            </ol>
             <p className="security-note">
-              存储位置：电脑的 <code>Downloads/Filebridge-Lan</code>；点击保存后复制到下载目录。
-              局域网直传目前是 HTTP 明文，只有访问码保护，不做内容加密；跨网络中继才是 AES-256-GCM 实验性端到端加密。
+              只在专用网络可用：切到公用网络会暂停局域网服务。局域网直传是 HTTP 明文、只有访问码保护，不做内容加密；
+              跨网络中继是实验性的 AES-256-GCM。
             </p>
           </section>
         </div>,
