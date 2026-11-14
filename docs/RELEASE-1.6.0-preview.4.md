@@ -10,6 +10,7 @@
 
 - **安全修复：`source` 不再由客户端决定。** 服务端按连接推导来源（loopback → `desktop`，其余 → `phone`），客户端传来的 `source` 被忽略。修复前，远端调用方可以自称 `desktop` 从而抑制主机的系统剪贴板写入。
 - **Node 与 Rust Hub 行为对齐。** 写入检查顺序统一为「限流 → 未开启 → 超长 → 格式错误」，两端返回相同状态码与 `code`；边界、限流、鉴权、去重、清空、no-log 均有等价断言。
+- **并发写入自洽。** 桌面与手机同时写入时，最终快照的 `text / hash / source` 描述同一次写入，`revision` 等于不同写入次数；相同文本不递增 `revision`，避免两端回显循环。
 - **会话失效立即清空。** `GET /api/clipboard` 返回 401/403 时，面板丢弃旧文本并提示重新配对；断线或 Public 暂停同样清空；token 变化时面板整体重置，不会把上一连接的内容带进新连接。
 - **桌面侧本地拦截超长文本。** 系统剪贴板文本超过 262144 字节时本地拒绝并提示，不再反复提交换回 413。
 - **面板层级按验收要求重排**：最新文本 → 复制（主操作）→ 发送文本 → 从剪贴板读取 → 清空 → 关闭同步；后三项收进分隔线下方的弱化行，危险/低频动作不再与复制、发送同权重。
@@ -62,7 +63,7 @@
 | `npm run test:resume` | `RESUME_SMOKE_OK` |
 | `npm run test:bridge` | `BRIDGE_SMOKE_OK` |
 | `npm run test:firewall` | `FIREWALL_INSTALLER_TEST_OK` |
-| `cargo test` | 26 通过 / 1 忽略 |
+| `cargo test` | 27 通过 / 1 忽略 |
 | `cargo check` | 通过（1 条既有弃用警告） |
 
 附加的界面自动验证（headless，非真机）：
