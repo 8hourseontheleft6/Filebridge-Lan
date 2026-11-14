@@ -1885,6 +1885,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn clipboard_interleaved_desktop_and_phone_writes_keep_last_write() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!(".filebridge-clipboard-race-{}", Uuid::new_v4()));
+        let state = new(0, root.clone(), root.join("dist")).await.expect("hub state");
+        let loopback = ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0)));
+        let remote = ConnectInfo(SocketAddr::from(([192, 0, 2, 44], 0)));
+        clipboard_enable(State(state.clone()), loopback, Json(ClipboardToggle { enabled: true }))
+            .await
+            .expect("enable");
+
+        // Two writers hitting the same state concurrently must not tear the snapshot:
+        // the stored text and its hash always describe the same write.
+        let (desktop, phone) = tokio::join!(
+            clipboard_post(State(state.clone()), loopback, Json(ClipboardWrite { text: "from desktop".into() })),
+            clipboard_post(State(state.clone()), remote, Json(ClipboardWrite { text: "from phone".into() })),
+        );
+        let desktop = desktop.expect("desktop write").0;
+        let phone = phone.expect("phone write").0;
+        let final_snapshot = state.clipboard_snapshot().await;
+        assert!(
+            final_snapshot.text.as_deref() == Some("from desktop")
+                || final_snapshot.text.as_deref() == Some("from phone"),
+            "stored text must be one of the two writes, got {:?}",
+            final_snapshot.text
+        );
+        let expected_source = if final_snapshot.text.as_deref() == Some("from desktop") {
+            "desktop"
+        } else {
+            "phone"
+        };
+        assert_eq!(final_snapshot.source.as_deref(), Some(expected_source), "source must match the stored text");
+        let expected_hash = format!(
+            "{:x}",
+            Sha256::digest(final_snapshot.text.clone().unwrap_or_default().as_bytes())
+        );
+        assert_eq!(final_snapshot.hash.as_deref(), Some(expected_hash.as_str()), "hash must match the stored text");
+        assert_eq!(
+            final_snapshot.revision,
+            desktop.revision.max(phone.revision),
+            "revision must reflect the number of distinct writes"
+        );
+
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
     async fn clipboard_size_boundary_and_source_are_server_owned() {
         let root = std::env::current_dir()
             .unwrap()
