@@ -3491,7 +3491,14 @@ input {
 /* Icon controls respond to hover/press without a layout jump. */
 .btn,
 .btn-icon-round,
-.side-nav-item,
+.side-nav-item {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms ease;
+}
 
 .btn:active,
 .btn-icon-round:active,
@@ -4302,5 +4309,27 @@ input {
 @media (max-width: 560px) {
   .brand strong {
     font-size: 0.88rem;
+  }
+}
+
+/* Clipboard: quiet row for read/clear/disable so they never outweigh copy/send. */
+.clipboard-quiet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.clipboard-quiet-actions .btn {
+  color: var(--text-dim);
+}
+
+@media (max-width: 860px), (pointer: coarse) {
+  .clipboard-quiet-actions .btn,
+  .clipboard-actions .btn,
+  .clipboard-compose-actions .btn {
+    min-height: 44px;
   }
 }

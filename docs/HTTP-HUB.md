@@ -77,7 +77,7 @@ Host/Origin 白名单：
 | GET | `/api/files/:id?token=` | token | 下载；支持 `Range` |
 | DELETE | `/api/files/:id` | token | 删除文件与元数据 |
 | GET | `/api/clipboard` | token | 读取文字同步快照 |
-| POST | `/api/clipboard` | token | 写入纯文本 `{ text, source }`；256 KiB 上限 |
+| POST | `/api/clipboard` | token | 写入纯文本 `{ text }`；256 KiB 上限 |
 | DELETE | `/api/clipboard` | token | 清空文本，保留开启状态 |
 | POST | `/api/clipboard/enabled` | token + 仅 loopback | 切换文字同步开关；远端调用 `403` |
 | GET | `/` | 否 | `dist/` 静态页面（SPA fallback） |
@@ -144,7 +144,7 @@ Authorization: Bearer <token>
 
 - 只有 `POST /api/clipboard/enabled` 需要 loopback，其余 `/api/clipboard*` 与文件 API 一样校验 bearer token
 - 关闭同步会清空内存中的文本；`GET` 在关闭时返回 `enabled: false`，其余字段为 `null`
-- `POST /api/clipboard` 的 body 为 `{ "text": "...", "source": "desktop" | "phone" }`，`source` 只接受这两个值
+- `POST /api/clipboard` 的 body 只需要 `{ "text": "..." }`；`source` 由服务端按连接推导（loopback → `desktop`，其余 → `phone`），客户端传入的 `source` 会被忽略
 - 单条上限 **256 KiB**（262144 字节，按 UTF-8 计）；超限 `413 clipboard_too_large`
 - 写入限流：全局 30 次/分钟、每 IP 10 次/分钟；超出 `429 clipboard_rate_limited`；未开启时 `409 clipboard_disabled`
 - 服务端按 SHA-256 去重，内容不变时不递增 `revision`，避免两端回显循环

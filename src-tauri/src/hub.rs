@@ -166,7 +166,6 @@ struct ClipboardToggle {
 #[derive(Deserialize)]
 struct ClipboardWrite {
     text: String,
-    source: String,
 }
 
 struct ConnectRequest {
@@ -1078,18 +1077,21 @@ async fn clipboard_post(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<ClipboardWrite>,
 ) -> ApiResult<Json<ClipboardSnapshot>> {
-    if body.source != "desktop" && body.source != "phone" {
+    // The source is derived from the connection, never taken from the client:
+    // a remote client must not be able to claim "desktop" and suppress the
+    // host's system-clipboard write.
+    let source = if addr.ip().is_loopback() {
+        "desktop"
+    } else {
+        "phone"
+    };
+    // Same order as the Node Hub: rate limit -> enabled -> size, so both
+    // implementations answer the same code for the same state.
+    if state.clipboard_rate_limited(addr.ip()).await {
         return Err(ApiError::with_code(
-            StatusCode::BAD_REQUEST,
-            "source 必须是 desktop 或 phone",
-            "clipboard_bad_request",
-        ));
-    }
-    if body.text.len() > CLIPBOARD_MAX_BYTES {
-        return Err(ApiError::with_code(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "文本超过 256 KiB 限制",
-            "clipboard_too_large",
+            StatusCode::TOO_MANY_REQUESTS,
+            "文字同步过于频繁，请稍后再试",
+            "clipboard_rate_limited",
         ));
     }
     {
@@ -1102,11 +1104,11 @@ async fn clipboard_post(
             ));
         }
     }
-    if state.clipboard_rate_limited(addr.ip()).await {
+    if body.text.len() > CLIPBOARD_MAX_BYTES {
         return Err(ApiError::with_code(
-            StatusCode::TOO_MANY_REQUESTS,
-            "文字同步过于频繁，请稍后再试",
-            "clipboard_rate_limited",
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "文本超过 256 KiB 限制",
+            "clipboard_too_large",
         ));
     }
     let hash = format!("{:x}", Sha256::digest(body.text.as_bytes()));
@@ -1116,7 +1118,7 @@ async fn clipboard_post(
             data.text = body.text;
             data.hash = Some(hash);
             data.updated_at = Some(now_ms());
-            data.source = Some(body.source);
+            data.source = Some(source.to_string());
             data.revision += 1;
         }
     }
@@ -1790,17 +1792,20 @@ mod tests {
 
         let first = clipboard_post(
             State(state.clone()),
-            loopback,
+            remote,
             Json(ClipboardWrite {
                 text: "clipboard contract".to_string(),
-                source: "phone".to_string(),
             }),
         )
         .await
         .expect("write")
         .0;
         assert_eq!(first.text.as_deref(), Some("clipboard contract"));
-        assert_eq!(first.source.as_deref(), Some("phone"));
+        assert_eq!(
+            first.source.as_deref(),
+            Some("phone"),
+            "a remote writer must be recorded as phone, whatever it declares"
+        );
         assert!(first.hash.is_some());
 
         let duplicate = clipboard_post(
@@ -1808,7 +1813,6 @@ mod tests {
             loopback,
             Json(ClipboardWrite {
                 text: "clipboard contract".to_string(),
-                source: "desktop".to_string(),
             }),
         )
         .await
@@ -1821,7 +1825,6 @@ mod tests {
             loopback,
             Json(ClipboardWrite {
                 text: "x".repeat(CLIPBOARD_MAX_BYTES + 1),
-                source: "phone".to_string(),
             }),
         )
         .await
@@ -1867,7 +1870,6 @@ mod tests {
                 loopback,
                 Json(ClipboardWrite {
                     text: format!("burst {index}"),
-                    source: "phone".to_string(),
                 }),
             )
             .await;
@@ -1879,6 +1881,67 @@ mod tests {
             }
         }
         assert!(limited, "burst writes must hit the per-IP limiter");
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn clipboard_size_boundary_and_source_are_server_owned() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!(".filebridge-clipboard-boundary-{}", Uuid::new_v4()));
+        let state = new(0, root.clone(), root.join("dist")).await.expect("hub state");
+        let loopback = ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0)));
+        let remote = ConnectInfo(SocketAddr::from(([192, 0, 2, 33], 0)));
+
+        // A client may still send a source field, but it is ignored by deserialisation.
+        let spoofed: ClipboardWrite =
+            serde_json::from_str(r#"{"text":"spoof","source":"desktop"}"#).expect("parse with source");
+        assert_eq!(spoofed.text, "spoof");
+
+        let full = "a".repeat(CLIPBOARD_MAX_BYTES);
+        let accepted = clipboard_post(State(state.clone()), loopback, Json(ClipboardWrite { text: full }))
+            .await
+            .expect("limit-sized text must be accepted")
+            .0;
+        assert_eq!(accepted.source.as_deref(), Some("desktop"), "loopback writes are desktop");
+
+        let under = clipboard_post(
+            State(state.clone()),
+            remote,
+            Json(ClipboardWrite { text: "b".repeat(CLIPBOARD_MAX_BYTES - 1) }),
+        )
+        .await
+        .expect("limit-1 must be accepted")
+        .0;
+        assert_eq!(under.source.as_deref(), Some("phone"), "remote writes are phone");
+
+        // UTF-8 aware: a 4-byte emoji counts as four bytes.
+        let emoji_ok = "🚀".repeat(CLIPBOARD_MAX_BYTES / 4);
+        assert_eq!(emoji_ok.len(), CLIPBOARD_MAX_BYTES);
+        let emoji = clipboard_post(State(state.clone()), remote, Json(ClipboardWrite { text: emoji_ok }))
+            .await
+            .expect("emoji at the byte limit must be accepted")
+            .0;
+        assert_eq!(emoji.text.as_deref().map(str::len), Some(CLIPBOARD_MAX_BYTES));
+
+        let over = clipboard_post(
+            State(state.clone()),
+            remote,
+            Json(ClipboardWrite { text: "c".repeat(CLIPBOARD_MAX_BYTES + 1) }),
+        )
+        .await
+        .expect_err("limit+1 must be rejected");
+        assert_eq!(over.status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(over.code, Some("clipboard_too_large"));
+
+        // An emoji one byte over the limit is also rejected.
+        let mut emoji_over = "🚀".repeat(CLIPBOARD_MAX_BYTES / 4);
+        emoji_over.push('x');
+        let over_emoji = clipboard_post(State(state.clone()), remote, Json(ClipboardWrite { text: emoji_over }))
+            .await
+            .expect_err("byte-over-limit emoji must be rejected");
+        assert_eq!(over_emoji.status, StatusCode::PAYLOAD_TOO_LARGE);
+
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 

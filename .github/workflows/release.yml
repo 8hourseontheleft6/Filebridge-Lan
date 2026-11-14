@@ -72,6 +72,9 @@ jobs:
       - name: Upload offset tests
         run: npm run test:offsets
 
+      - name: Clipboard sync tests
+        run: npm run test:clipboard
+
       - name: Hub smoke tests
         run: npm run test:hub
 

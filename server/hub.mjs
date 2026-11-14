@@ -1122,8 +1122,8 @@ async function route(req, res) {
       sendJson(res, 413, { error: '文本超过 256 KiB 限制', code: 'clipboard_too_large' });
       return;
     }
-    if (typeof body.text !== 'string' || (body.source !== 'desktop' && body.source !== 'phone')) {
-      sendJson(res, 400, { error: '请求必须包含 text 和 source', code: 'clipboard_bad_request' });
+    if (typeof body.text !== 'string') {
+      sendJson(res, 400, { error: '请求必须包含 text', code: 'clipboard_bad_request' });
       return;
     }
     if (Buffer.byteLength(body.text, 'utf8') > CLIPBOARD_MAX_BYTES) {
@@ -1135,7 +1135,9 @@ async function route(req, res) {
       clipboardState.text = body.text;
       clipboardState.hash = hash;
       clipboardState.updatedAt = Date.now();
-      clipboardState.source = body.source;
+      // Derived from the socket, never from the client: a remote caller must not
+      // be able to claim "desktop" and suppress the host's clipboard write.
+      clipboardState.source = isLoopback(req) ? 'desktop' : 'phone';
       clipboardState.revision += 1;
     }
     sendJson(res, 200, clipboardSnapshot());

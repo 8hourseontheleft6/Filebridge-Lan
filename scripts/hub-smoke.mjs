@@ -244,56 +244,107 @@ async function main() {
     console.log('PASS pairing tokens');
 
     const clipboardHeaders = { Authorization: `Bearer ${desktop.token}`, 'Content-Type': 'application/json' };
-    const defaultClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+    const loopbackOrigin = `http://127.0.0.1:${port}`;
+    const defaultClipboard = await fetch(`${loopbackOrigin}/api/clipboard`, {
       headers: { Authorization: `Bearer ${desktop.token}` },
     });
     assert.equal((await defaultClipboard.json()).enabled, true, 'clipboard must start enabled');
-    const noAuthClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`);
+    const noAuthClipboard = await fetch(`${loopbackOrigin}/api/clipboard`);
     assert.equal(noAuthClipboard.status, 401);
-    await fetch(`http://127.0.0.1:${port}/api/clipboard/enabled`, {
+    const noAuthWrite = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'nope' }),
+    });
+    assert.equal(noAuthWrite.status, 401, 'unapproved tokens must not write clipboard text');
+    const wrongTokenWrite = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer not-a-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'nope' }),
+    });
+    assert.equal(wrongTokenWrite.status, 401);
+    await fetch(`${loopbackOrigin}/api/clipboard/enabled`, {
       method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: false }),
     });
-    const disabledClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
-      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'disabled', source: 'phone' }),
+    const disabledClipboard = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'disabled' }),
     });
     assert.equal(disabledClipboard.status, 409);
     const remoteEnable = await fetch(`${lanOrigin}/api/clipboard/enabled`, {
       method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: true }),
     });
     assert.equal(remoteEnable.status, 403);
-    const enableClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard/enabled`, {
+    const enableClipboard = await fetch(`${loopbackOrigin}/api/clipboard/enabled`, {
       method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: true }),
     });
     assert.equal(enableClipboard.status, 200);
     const clipboardSecret = 'clipboard-smoke-secret-7f3c';
-    const sentClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
-      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: clipboardSecret, source: 'phone' }),
-    });
-    assert.equal(sentClipboard.status, 200);
-    const clipboardSnapshot = await sentClipboard.json();
-    assert.equal(clipboardSnapshot.enabled, true);
-    assert.equal(clipboardSnapshot.text, clipboardSecret);
-    assert.match(clipboardSnapshot.hash, /^[a-f0-9]{64}$/);
-    const duplicateClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
+
+    // Source is derived from the socket: a remote caller claiming "desktop" is still phone.
+    const spoofedWrite = await fetch(`${lanOrigin}/api/clipboard`, {
       method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: clipboardSecret, source: 'desktop' }),
     });
-    const duplicateSnapshot = await duplicateClipboard.json();
-    assert.equal(duplicateSnapshot.revision, clipboardSnapshot.revision, 'duplicate text must not bump revision');
-    const oversizedClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, {
-      method: 'POST', headers: clipboardHeaders,
-      body: JSON.stringify({ text: 'x'.repeat(256 * 1024 + 1), source: 'phone' }),
+    assert.equal(spoofedWrite.status, 200);
+    const spoofedSnapshot = await spoofedWrite.json();
+    assert.equal(spoofedSnapshot.source, 'phone', 'remote writers must not be able to claim desktop');
+    assert.equal(spoofedSnapshot.text, clipboardSecret);
+    assert.match(spoofedSnapshot.hash, /^[a-f0-9]{64}$/);
+    const duplicateClipboard = await fetch(`${lanOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: clipboardSecret }),
     });
-    assert.equal(oversizedClipboard.status, 413);
-    const clearClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard`, { method: 'DELETE', headers: clipboardHeaders });
+    const duplicateSnapshot = await duplicateClipboard.json();
+    assert.equal(
+      duplicateSnapshot.revision,
+      spoofedSnapshot.revision,
+      'duplicate text must not bump revision',
+    );
+    const desktopWrite = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: clipboardSecret + '-desktop' }),
+    });
+    assert.equal((await desktopWrite.json()).source, 'desktop', 'loopback writers are the desktop');
+
+    // Size is measured in UTF-8 bytes, boundary inclusive at 262144.
+    const boundaryOk = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'a'.repeat(256 * 1024 - 1) }),
+    });
+    assert.equal(boundaryOk.status, 200, '262143 bytes must be accepted');
+    const boundaryFull = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'b'.repeat(256 * 1024) }),
+    });
+    assert.equal(boundaryFull.status, 200, '262144 bytes must be accepted');
+    const oversizedClipboard = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: 'c'.repeat(256 * 1024 + 1) }),
+    });
+    assert.equal(oversizedClipboard.status, 413, '262145 bytes must be rejected');
+    assert.equal((await oversizedClipboard.json()).code, 'clipboard_too_large');
+    const emojiAtLimit = await fetch(`${loopbackOrigin}/api/clipboard`, {
+      method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: '🚀'.repeat(65536) }),
+    });
+    assert.equal(emojiAtLimit.status, 200, '4-byte glyphs at the byte limit must be accepted');
+
+    // Per-IP throttling: keep writing distinct text until the limiter answers 429.
+    let rateLimited = false;
+    for (let index = 0; index < 16; index += 1) {
+      const burst = await fetch(`${loopbackOrigin}/api/clipboard`, {
+        method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ text: `clipboard-burst-${index}` }),
+      });
+      if (burst.status === 429) {
+        assert.equal((await burst.json()).code, 'clipboard_rate_limited');
+        rateLimited = true;
+        break;
+      }
+    }
+    assert.ok(rateLimited, 'burst writes must hit the per-IP limiter');
+
+    const clearClipboard = await fetch(`${loopbackOrigin}/api/clipboard`, { method: 'DELETE', headers: clipboardHeaders });
     assert.equal(clearClipboard.status, 200);
     assert.equal((await clearClipboard.json()).text, null);
-    const disableClipboard = await fetch(`http://127.0.0.1:${port}/api/clipboard/enabled`, {
+    const disableClipboard = await fetch(`${loopbackOrigin}/api/clipboard/enabled`, {
       method: 'POST', headers: clipboardHeaders, body: JSON.stringify({ enabled: false }),
     });
     assert.equal(disableClipboard.status, 200);
     assert.equal((await disableClipboard.json()).enabled, false);
     assert.ok(!output.includes(clipboardSecret), 'clipboard text must never be logged');
-    console.log('PASS clipboard auth/limit/clear/dedupe/no-log');
+    assert.ok(!output.includes('🚀'), 'clipboard text must never be logged');
+    console.log('PASS clipboard auth/host-only/source/boundaries/dedupe/clear/no-log');
     await readSseHeartbeat(port, desktop.token);
     console.log('PASS SSE heartbeat');
 

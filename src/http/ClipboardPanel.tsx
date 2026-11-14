@@ -2,6 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { API_BASE } from '../lib/hub';
 import { Icon } from '../components/Icon';
+import {
+  CLIPBOARD_MAX_BYTES,
+  clearClipboardText,
+  clipboardByteLength,
+  clipboardErrorText,
+  clipboardStatusDropsText,
+  isClipboardTextTooLarge,
+  shouldPushSystemClipboard,
+  shouldWriteSystemClipboard,
+} from '../lib/clipboard';
 
 interface ClipboardSnapshot {
   enabled: boolean;
@@ -20,7 +30,7 @@ interface ClipboardPanelProps {
   publicPaused: boolean;
 }
 
-const MAX_BYTES = 256 * 1024;
+const MAX_BYTES = CLIPBOARD_MAX_BYTES;
 
 function formatTime(value: number | null) {
   if (!value) return '尚未同步';
@@ -71,16 +81,38 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        // Never keep the previous connection's text when the session is gone.
+        if (clipboardStatusDropsText(response.status)) {
+          setSnapshot((prev) => (prev ? clearClipboardText(prev) : prev));
+          setDraft('');
+          setNotice('');
+          setError(clipboardErrorText(response.status));
+          return;
+        }
+        throw new Error(clipboardErrorText(response.status));
+      }
       applySnapshot(await response.json() as ClipboardSnapshot);
-    } catch {
-      if (!publicPaused && online !== false) setError('暂时无法读取文字同步状态');
+    } catch (reason) {
+      if (!publicPaused && online !== false) {
+        setError(reason instanceof Error ? reason.message : '暂时无法读取文字同步状态');
+      }
     }
   }, [applySnapshot, online, publicPaused, token]);
 
+  // A new connection must never inherit the previous one's text.
+  useEffect(() => {
+    setSnapshot(null);
+    setDraft('');
+    setError('');
+    setNotice('');
+    hashRef.current = '';
+    lastSystemHashRef.current = '';
+  }, [token]);
+
   useEffect(() => {
     if (!token || publicPaused || online === false) {
-      setSnapshot((prev) => prev ? { ...prev, text: '', hash: null, updatedAt: null, source: null } : prev);
+      setSnapshot((prev) => (prev ? clearClipboardText(prev) : prev));
       return;
     }
     void load();
@@ -99,16 +131,26 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
       try {
         const value = await invoke<string | null>('clipboard_read_text');
         if (!active || !value) return;
+        // Reject oversized text locally instead of letting the Hub answer 413 forever.
+        if (isClipboardTextTooLarge(value)) {
+          setError(`系统剪贴板文本 ${clipboardByteLength(value)} 字节，超过 256 KiB，未同步`);
+          return;
+        }
         const hash = await sha256(value);
-        if (!hash || hash === hashRef.current || hash === lastSystemHashRef.current) return;
+        if (!shouldPushSystemClipboard({
+          bytes: clipboardByteLength(value),
+          hash,
+          hubHash: hashRef.current,
+          lastSystemHash: lastSystemHashRef.current,
+        })) return;
         const response = await fetch(`${API_BASE}/api/clipboard`, {
           method: 'POST',
           headers: headers(),
-          body: JSON.stringify({ text: value, source: 'desktop' }),
+          body: JSON.stringify({ text: value }),
         });
         const next = await response.json() as ClipboardSnapshot & { code?: string };
         if (!response.ok) {
-          setError(next.code === 'clipboard_rate_limited' ? '文字同步过于频繁，请稍后再试' : '系统剪贴板同步失败');
+          setError(clipboardErrorText(response.status, next.code));
           return;
         }
         lastSystemHashRef.current = hash;
@@ -127,15 +169,20 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
     };
   }, [applySnapshot, desktop, enabled, headers, paused]);
 
-  // Phone-to-desktop direction: write only when the Hub text came from another
-  // source, and remember the hash so the system poll does not echo it back.
+  // Phone-to-desktop direction: write only text that came from another device.
   useEffect(() => {
-    if (!desktop || !enabled || paused || !text || !snapshot?.hash) return;
-    if (snapshot.source === 'desktop') return;
-    if (snapshot.hash === lastSystemHashRef.current) return;
+    if (!shouldWriteSystemClipboard({
+      desktop,
+      enabled,
+      paused,
+      text,
+      hubHash: snapshot?.hash ?? null,
+      source: snapshot?.source ?? null,
+      lastSystemHash: lastSystemHashRef.current,
+    })) return;
     void invoke('clipboard_write_text', { text })
       .then(() => {
-        lastSystemHashRef.current = snapshot.hash || '';
+        lastSystemHashRef.current = snapshot?.hash || '';
       })
       .catch((reason) => {
         setError(`写入系统剪贴板失败：${String(reason)}`);
@@ -172,14 +219,13 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
     void toggle();
   }, [canEnable, desktop, paused, snapshot?.enabled]);
 
-  const send = async (value: string, source: 'desktop' | 'phone' = desktop ? 'desktop' : 'phone') => {
-    const body = value;
-    if (!body) {
+  const send = async (value: string) => {
+    if (!value) {
       setError('文本不能为空');
       return;
     }
-    if (new TextEncoder().encode(body).length > MAX_BYTES) {
-      setError('文本超过 256 KiB 限制');
+    if (isClipboardTextTooLarge(value)) {
+      setError(`文本 ${clipboardByteLength(value)} 字节，超过 256 KiB 限制`);
       return;
     }
     setBusy(true);
@@ -189,17 +235,12 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
       const response = await fetch(`${API_BASE}/api/clipboard`, {
         method: 'POST',
         headers: headers(),
-        body: JSON.stringify({ text: body, source }),
+        body: JSON.stringify({ text: value }),
       });
       const next = await response.json() as ClipboardSnapshot & { error?: string; code?: string };
-      if (!response.ok) {
-        if (next.code === 'clipboard_too_large') throw new Error('文本超过 256 KiB 限制');
-        if (next.code === 'clipboard_disabled') throw new Error('文字同步未开启');
-        if (next.code === 'clipboard_rate_limited') throw new Error('文字同步过于频繁，请稍后再试');
-        throw new Error(next.error || '发送失败');
-      }
+      if (!response.ok) throw new Error(clipboardErrorText(response.status, next.code));
       applySnapshot(next);
-      if (source === 'desktop') lastSystemHashRef.current = next.hash || '';
+      if (desktop) lastSystemHashRef.current = next.hash || '';
       setNotice('已发送到当前连接');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -289,17 +330,12 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
         </div>
         <div className="clipboard-head-status">
           <span className={`status-pill ${enabled ? (paused ? 'warn' : 'ok') : 'warn'}`}>{status}</span>
-          {enabled && canEnable && (
-            <button type="button" className="btn btn-ghost btn-small" disabled={busy} onClick={() => void toggle()}>
-              关闭同步
-            </button>
-          )}
         </div>
       </div>
 
       {enabled && (
         <p className="clipboard-default-note">
-          <Icon name="help" size={13} /> 文字同步默认开启；关闭后桌面与手机都不再收发文本。
+          <Icon name="help" size={13} /> 默认开启，可随时关闭；只存内存，断线或关闭同步即清空。
         </p>
       )}
 
@@ -326,18 +362,10 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
               <button type="button" className="btn btn-small btn-primary" disabled={!text} onClick={() => void copyLatest()}>
                 <Icon name="copy" size={14} /> {copied ? '已复制' : '复制'}
               </button>
-              <button type="button" className="btn btn-small btn-ghost" disabled={busy || !text} onClick={() => void clear()}>
-                清空
-              </button>
             </div>
           </div>
           <div className="clipboard-compose">
-            <div className="clipboard-compose-head">
-              <label className="field-label" htmlFor="clipboard-draft">发送文本</label>
-              <button type="button" className="btn btn-small btn-ghost" onClick={() => void readClipboard()}>
-                从剪贴板读取
-              </button>
-            </div>
+            <label className="field-label" htmlFor="clipboard-draft">发送文本</label>
             <textarea
               id="clipboard-draft"
               className="clipboard-input"
@@ -352,6 +380,19 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
                 {busy ? '发送中…' : '发送'}
               </button>
             </div>
+          </div>
+          <div className="clipboard-quiet-actions">
+            <button type="button" className="btn btn-small btn-ghost" onClick={() => void readClipboard()}>
+              从剪贴板读取
+            </button>
+            <button type="button" className="btn btn-small btn-ghost" disabled={busy || !text} onClick={() => void clear()}>
+              清空
+            </button>
+            {canEnable && (
+              <button type="button" className="btn btn-small btn-ghost" disabled={busy} onClick={() => void toggle()}>
+                关闭同步
+              </button>
+            )}
           </div>
         </>
       )}

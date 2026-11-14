@@ -1,6 +1,6 @@
 # Text Clipboard Sync Protocol
 
-Status: 1.6.0-preview.3. Node Hub and Rust Hub implement the same contract.
+Status: 1.6.0-preview.4. Node Hub and Rust Hub implement the same contract.
 
 ## Access
 
@@ -39,16 +39,18 @@ When disabled: `enabled=false`, `text/hash/updatedAt/source` are `null`.
 ### `POST /api/clipboard`
 
 ```json
-{"text": "plain text", "source": "desktop"}
+{"text": "plain text"}
 ```
 
-`source` must be `desktop` or `phone`. The server computes SHA-256 and does not bump `revision` when the hash is unchanged, preventing echo loops. Response is the current snapshot.
+The body only carries `text`; `source` is **derived by the Hub from the socket**: a loopback request is recorded as `desktop`, anything else as `phone`. Clients must not send a source and any extra field is ignored, so a remote caller cannot claim `desktop` to suppress the host's system-clipboard write. The server computes SHA-256 and does not bump `revision` when the hash is unchanged, preventing echo loops. Response is the current snapshot.
+
+Check order is identical in both Hubs: rate limit (`429`) → disabled (`409`) → size (`413`) → bad request (`400`).
 
 Errors:
 
+- `429 clipboard_rate_limited`
 - `409 clipboard_disabled`
 - `413 clipboard_too_large`
-- `429 clipboard_rate_limited`
 - `400 clipboard_bad_request`
 
 ### `DELETE /api/clipboard`
