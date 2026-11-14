@@ -10,7 +10,6 @@ interface RateCardProps {
   total: number;
   history: number[];
   tone?: 'blue' | 'green';
-  idle?: boolean;
   children?: ReactNode;
 }
 
@@ -26,7 +25,6 @@ export function RateCard({
   total,
   history,
   tone = 'blue',
-  idle = true,
   children,
 }: RateCardProps) {
   const gradientId = `rate-${useId().replace(/:/g, '')}`;
@@ -51,7 +49,6 @@ export function RateCard({
       <div className="rate-value">{speedLabel(speed)}</div>
       <div className="rate-total">累计 {formatBytes(total)}</div>
       {children}
-      {idle && (
       <svg className="rate-chart" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -70,7 +67,6 @@ export function RateCard({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      )}
     </article>
   );
 }

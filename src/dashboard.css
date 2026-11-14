@@ -3698,7 +3698,7 @@ input {
   margin-top: 12px;
 }
 
-.rate-panel .progress-block .btn {
+.rate-panel .progress-block > .btn {
   margin-top: 8px;
 }
 
@@ -3861,42 +3861,6 @@ input {
     transition: none;
   }
 }
-/*
- * Annotation pass 4: the transfer progress becomes an Explorer-style meter
- * (filled track + live speed shape + speed reading in one box), and the QR
- * actions collapse into round icon buttons sitting on the code's bottom line.
- */
-.transfer-meter {
-  position: relative;
-  height: 56px;
-  margin-top: 9px;
-  overflow: hidden;
-  border: 1px solid #e3eaf4;
-  border-radius: 10px;
-  background: #fbfcfe;
-}
-
-.transfer-meter-fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  background: #d7e5ff;
-  transition: width 320ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.transfer-meter.green .transfer-meter-fill {
-  background: #d2f0e2;
-}
-
-.transfer-meter-chart {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
 /* Round QR actions, aligned with the bottom edge of the code. */
 .connection-card .qr-card {
   align-items: flex-end;
@@ -3921,11 +3885,15 @@ input {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .transfer-meter-fill {
-    transition: none;
-  }
+/* Transfer readouts: count-only progress, meta row centred with its buttons. */
+.progress-meta {
+  align-items: center;
 }
+
+.progress-meta .btn-icon-round {
+  margin-left: auto;
+}
+
 /*
  * Annotation pass 5: the file list is one fixed-size list (no dashed drop
  * zone), the whole window accepts drops, and the transfer readouts lose the
@@ -4056,4 +4024,28 @@ input {
   .progress-column {
     min-height: 300px;
   }
+}
+
+/* The cancel control rides on the title row so it always shares one baseline. */
+.progress-row-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.progress-row-end .btn-icon-round {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+}
+
+.progress-meta .btn-icon-round {
+  margin-left: 0;
+}
+
+/* Action buttons keep the extra top margin; the inline cancel must not. */
+.progress-row-end .btn,
+.progress-row-end .btn-icon-round {
+  margin: 0;
 }

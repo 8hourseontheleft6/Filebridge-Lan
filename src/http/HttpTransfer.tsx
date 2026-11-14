@@ -6,7 +6,6 @@ import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo, type LanServiceS
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
-import { TransferMeter } from '../components/TransferMeter';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
@@ -2067,7 +2066,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             total={uploadTotal}
             history={uploadHistory}
             tone="blue"
-            idle={!upload}
           >
             {upload && (
               <div className="reveal">
@@ -2076,14 +2074,21 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     <span className="progress-title">
                       {uploadIsBatch ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个` : '上传中'}
                     </span>
-                    <strong>{uploadPercent}%</strong>
+                    <span className="progress-row-end">
+                      {!uploadIsBatch && <strong>{uploadPercent}%</strong>}
+                      {(upload.status === 'uploading' || upload.status === 'retrying') && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-icon-round"
+                          onClick={cancelUpload}
+                          aria-label="取消上传"
+                          title="取消上传"
+                        >
+                          <Icon name="close" size={14} />
+                        </button>
+                      )}
+                    </span>
                   </div>
-                  <TransferMeter
-                    tone="blue"
-                    label={uploadIsBatch ? '上传总进度' : '上传进度'}
-                    percent={uploadPercent}
-                    history={uploadHistory}
-                  />
                   <div className="progress-meta">
                     <span>{formatBytes(uploadLoadedBytes)} / {formatBytes(uploadTotalBytes)}</span>
                     {(upload.status === 'uploading' || upload.status === 'retrying') && <span>剩余 {formatDuration(uploadEta)}</span>}
@@ -2096,17 +2101,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     {upload.checking && <span>正在核对服务器已保存进度…</span>}
                     {upload.status === 'cancelled' && <span>已取消，可继续上传</span>}
                     {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
-                    {(upload.status === 'uploading' || upload.status === 'retrying') && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-icon-round"
-                        onClick={cancelUpload}
-                        aria-label="取消上传"
-                        title="取消上传"
-                      >
-                        <Icon name="close" size={14} />
-                      </button>
-                    )}
                   </div>
                   {upload.status === 'error' && upload.file && (
                     <button type="button" className="btn btn-small btn-primary" onClick={resumeUpload}>
@@ -2131,7 +2125,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             total={downloadTotal}
             history={downloadHistory}
             tone="green"
-            idle={!(showLiveUpload && visibleLiveUpload) && !activeDownload}
           >
             {downloadBlocks.map(({ key, leaving }) => {
               const live = visibleLiveUpload ?? liveBlockRef.current;
@@ -2146,12 +2139,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                         <span className="progress-title">接收中</span>
                         <strong>{livePct}%</strong>
                       </div>
-                      <TransferMeter
-                        tone="green"
-                        label="接收进度"
-                        percent={livePct}
-                        history={uploadHistory}
-                      />
                       <div className="progress-meta">
                         <span>{formatBytes(live.loaded)} / {formatBytes(live.total)}</span>
                         {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
@@ -2162,27 +2149,23 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     <div className="progress-block">
                       <div className="progress-row">
                         <span className="progress-title">保存中</span>
-                        <strong>{savePct}%</strong>
+                        <span className="progress-row-end">
+                          <strong>{savePct}%</strong>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon-round"
+                            onClick={cancelDownload}
+                            disabled={save.status === 'cancelling'}
+                            aria-label="取消保存"
+                            title="取消保存"
+                          >
+                            <Icon name={save.status === 'cancelling' ? 'refresh' : 'close'} size={14} className={save.status === 'cancelling' ? 'is-spinning' : undefined} />
+                          </button>
+                        </span>
                       </div>
-                      <TransferMeter
-                        tone="green"
-                        label="保存进度"
-                        percent={savePct}
-                        history={downloadHistory}
-                      />
                       <div className="progress-meta">
                         <span>{formatBytes(save.loaded)} / {formatBytes(save.total)}</span>
                         {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon-round"
-                          onClick={cancelDownload}
-                          disabled={save.status === 'cancelling'}
-                          aria-label="取消保存"
-                          title="取消保存"
-                        >
-                          <Icon name={save.status === 'cancelling' ? 'refresh' : 'close'} size={14} className={save.status === 'cancelling' ? 'is-spinning' : undefined} />
-                        </button>
                       </div>
                     </div>
                   )}
