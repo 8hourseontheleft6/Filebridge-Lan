@@ -3602,3 +3602,244 @@ input {
   justify-content: center;
   text-align: center;
 }
+/*
+ * Annotation pass 3:
+ * 1. the shared upload/download reading card becomes two cards, one per
+ *    direction, laid out like FlClash's 上传 / 下载 panels;
+ * 2. rows, progress blocks and the pairing disclosure grow through a real
+ *    height transition instead of snapping the card taller;
+ * 3. the nearby empty hint sits at the centre of its card.
+ */
+.progress-column {
+  grid-area: progress;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 560px) {
+  .progress-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  .progress-column {
+    min-height: 260px;
+  }
+}
+
+.rate-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px 16px 0;
+  overflow: hidden;
+}
+
+.rate-panel .rate-head {
+  align-items: center;
+}
+
+.rate-panel .rate-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #41516a;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.rate-panel .rate-label svg {
+  color: #5b9cf6;
+}
+
+.rate-panel.green .rate-label svg {
+  color: #43b981;
+}
+
+.rate-panel .rate-peak {
+  font-size: 0.72rem;
+}
+
+.rate-panel .rate-value {
+  margin-top: 10px;
+  font-size: 1.7rem;
+  line-height: 1.1;
+}
+
+.rate-panel .rate-total {
+  margin-top: 4px;
+  font-size: 0.74rem;
+}
+
+.rate-panel .rate-chart {
+  position: static;
+  display: block;
+  width: calc(100% + 32px);
+  height: 62px;
+  margin: auto -16px 0;
+}
+
+.rate-panel .progress-block {
+  margin-top: 12px;
+}
+
+.rate-panel .progress-block .btn {
+  margin-top: 8px;
+}
+
+.rate-panel .reveal + .reveal > .progress-block {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f3f8;
+}
+
+.progress-column.is-idle .rate-value {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.progress-column.is-idle .rate-peak,
+.progress-column.is-idle .rate-total {
+  color: var(--text-dim);
+}
+
+.progress-column.is-idle .rate-chart {
+  opacity: 0.35;
+}
+
+/* A new row/block owns a grid track so the card's height can transition. */
+.reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+  transition: grid-template-rows 340ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.reveal > * {
+  min-height: 0;
+  overflow: clip;
+}
+
+@starting-style {
+  .reveal {
+    grid-template-rows: 0fr;
+  }
+}
+
+/* The list wrapper keeps the reveal clean: only the gap changes. */
+.file-list-wrap {
+  display: block;
+  margin-top: 0;
+  opacity: 1;
+  transform: none;
+  transition: margin-top 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.file-list-wrap.has-files {
+  grid-template-rows: none;
+  margin-top: 13px;
+  opacity: 1;
+  transform: none;
+}
+
+/* Pairing details: an animated disclosure instead of a snapping <details>. */
+.pairing-details > .pairing-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.76rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pairing-details.is-open > .pairing-summary {
+  color: #33415a;
+}
+
+.pairing-summary:focus-visible {
+  outline: 2px solid var(--primary-strong);
+  outline-offset: 2px;
+}
+
+.pairing-chevron {
+  flex: 0 0 auto;
+  color: #7a8799;
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pairing-details.is-open .pairing-chevron {
+  transform: rotate(180deg);
+}
+
+.disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 340ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.disclosure.is-open {
+  grid-template-rows: 1fr;
+}
+
+.disclosure > .disclosure-inner {
+  min-height: 0;
+  overflow: clip;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 220ms ease, transform 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.disclosure.is-open > .disclosure-inner {
+  opacity: 1;
+  transform: none;
+}
+
+.pairing-body.disclosure {
+  padding-bottom: 0;
+}
+
+.pairing-body.disclosure > .disclosure-inner {
+  padding-bottom: 11px;
+}
+
+/* Nearby: centre the resting hint inside the card, keep rows rule-complete. */
+.nearby-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.nearby-card > .nearby-empty {
+  margin: auto 0;
+}
+
+.nearby-list .nearby-row {
+  border-bottom: 1px solid #f0f3f8;
+}
+
+.nearby-list > .reveal:last-child .nearby-row {
+  border-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .disclosure,
+  .disclosure > .disclosure-inner,
+  .pairing-chevron,
+  .file-list-wrap {
+    transition: none;
+  }
+}

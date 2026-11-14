@@ -1,14 +1,16 @@
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import { formatBytes } from '../lib/format';
+import { Icon } from './Icon';
 
 interface RateCardProps {
   label: string;
-  icon: string;
+  direction: 'upload' | 'download';
   speed: number;
   peak: number;
   total: number;
   history: number[];
   tone?: 'blue' | 'green';
+  children?: ReactNode;
 }
 
 function speedLabel(value: number): string {
@@ -17,12 +19,13 @@ function speedLabel(value: number): string {
 
 export function RateCard({
   label,
-  icon,
+  direction,
   speed,
   peak,
   total,
   history,
   tone = 'blue',
+  children,
 }: RateCardProps) {
   const gradientId = `rate-${useId().replace(/:/g, '')}`;
   const values = history.length > 1 ? history : [0, 0];
@@ -38,13 +41,14 @@ export function RateCard({
   const stroke = tone === 'green' ? '#43b981' : '#5b9cf6';
 
   return (
-    <div className={`rate-card ${tone}`}>
+    <article className={`card rate-panel ${tone}`} aria-label={`${label}速率`}>
       <div className="rate-head">
-        <span className="rate-label"><span aria-hidden>{icon}</span>{label}</span>
+        <span className="rate-label"><Icon name={direction} size={15} />{label}</span>
         <span className="rate-peak">峰值 {speedLabel(peak)}</span>
       </div>
       <div className="rate-value">{speedLabel(speed)}</div>
       <div className="rate-total">累计 {formatBytes(total)}</div>
+      {children}
       <svg className="rate-chart" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -63,6 +67,6 @@ export function RateCard({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-    </div>
+    </article>
   );
 }

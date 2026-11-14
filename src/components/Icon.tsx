@@ -8,7 +8,9 @@ interface IconProps {
     | 'trash'
     | 'close'
     | 'arrow-up-right'
+    | 'upload'
     | 'download'
+    | 'chevron-down'
     | 'alert'
     | 'check'
     | 'device'
@@ -97,6 +99,18 @@ export function Icon({ name, size = 18, className }: IconProps) {
       return (
         <svg {...common}>
           <path d="M12 3v12m-5-5 5 5 5-5M5 21h14" />
+        </svg>
+      );
+    case 'upload':
+      return (
+        <svg {...common}>
+          <path d="M12 21V9m-5 5 5-5 5 5M5 3h14" />
+        </svg>
+      );
+    case 'chevron-down':
+      return (
+        <svg {...common}>
+          <path d="m6 9 6 6 6-6" />
         </svg>
       );
     case 'alert':

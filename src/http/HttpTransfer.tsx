@@ -247,6 +247,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const [codeError, setCodeError] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
   const [showCode, setShowCode] = useState(false);
+  const [pairingOpen, setPairingOpen] = useState(() => !readToken());
   const [rotating, setRotating] = useState(false);
   const [refreshSpinning, setRefreshSpinning] = useState(false);
   const refreshSpinTimerRef = useRef<number | null>(null);
@@ -1576,57 +1577,70 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         : 'chip-warn';
 
   const pairingDetails = (
-    <details className="pairing-details" open={!token || undefined}>
-      <summary>
-        手动连接 / 连接详情
-      </summary>
-      <div className="pairing-body">
-        {sessionCode && (
-          <div className="pairing-code-row">
-            <span>配对码</span>
-            <strong>{sessionCode}</strong>
-            <CopyButton text={sessionCode} label="复制配对码" />
+    <div className={`pairing-details${pairingOpen ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="pairing-summary"
+        aria-expanded={pairingOpen}
+        aria-controls="pairing-body"
+        onClick={() => setPairingOpen((value) => !value)}
+      >
+        <span>手动连接 / 连接详情</span>
+        <Icon name="chevron-down" size={14} className="pairing-chevron" />
+      </button>
+      <div
+        id="pairing-body"
+        className={`pairing-body disclosure${pairingOpen ? ' is-open' : ''}`}
+        inert={pairingOpen ? undefined : true}
+      >
+        <div className="disclosure-inner">
+          {sessionCode && (
+            <div className="pairing-code-row">
+              <span>配对码</span>
+              <strong>{sessionCode}</strong>
+              <CopyButton text={sessionCode} label="复制配对码" />
+            </div>
+          )}
+          <label className="field-label" htmlFor="http-session-code">手动输入配对码</label>
+          <div className="path-row">
+            <input
+              id="http-session-code"
+              className="input"
+              value={codeInput}
+              onChange={(event) => setCodeInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={(event) => { if (event.key === 'Enter') void unlock(); }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="6 位数字"
+              style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: 4 }}
+            />
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void unlock()}
+              disabled={codeInput.length !== 6 || rotating}
+            >
+              连接
+            </button>
           </div>
-        )}
-        <label className="field-label" htmlFor="http-session-code">手动输入配对码</label>
-        <div className="path-row">
-          <input
-            id="http-session-code"
-            className="input"
-            value={codeInput}
-            onChange={(event) => setCodeInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            onKeyDown={(event) => { if (event.key === 'Enter') void unlock(); }}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="6 位数字"
-            style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: 4 }}
-          />
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void unlock()}
-            disabled={codeInput.length !== 6 || rotating}
-          >
-            连接
-          </button>
+          {canRotate && (
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => void rotatePairing()}
+              disabled={rotating}
+            >
+              {rotating ? '生成中…' : '重新生成配对码'}
+            </button>
+          )}
+          {codeError && <p className="text-error" role="alert">{codeError}</p>}
+          <p className="hint">
+            扫码成功时无需手动操作；配对码只用于换取 12 小时访问授权。
+          </p>
         </div>
-        {canRotate && (
-          <button
-            type="button"
-            className="btn btn-small"
-            onClick={() => void rotatePairing()}
-            disabled={rotating}
-          >
-            {rotating ? '生成中…' : '重新生成配对码'}
-          </button>
-        )}
-        {codeError && <p className="text-error" role="alert">{codeError}</p>}
-        <p className="hint">
-          扫码成功时无需手动操作；配对码只用于换取 12 小时访问授权。
-        </p>
       </div>
-    </details>
+    </div>
   );
 
   const serviceNotice = desktop && online === false && !publicPaused ? (
@@ -1899,75 +1913,77 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           <div className={`file-list-wrap${files.length > 0 ? ' has-files' : ''}`}>
             <div className="file-list">
               {files.map((file) => (
-                <div key={file.id} className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
-                  <input
-                    type="checkbox"
-                    className="file-select"
-                    checked={selectedIds.has(file.id)}
-                    onChange={() => toggleSelected(file.id)}
-                    disabled={online === false}
-                    aria-label={`选择 ${file.name}`}
-                  />
-                  <span className="file-icon file-ext" aria-hidden>{fileExtension(file.name)}</span>
-                  <div className="file-main" title={file.name}>
-                    <div className="file-name">{file.name}</div>
-                    <div className="file-status">
-                      {formatBytes(file.size)} · SHA-256 {file.sha256.slice(0, 10)}…
+                <div className="reveal" key={file.id}>
+                  <div className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
+                    <input
+                      type="checkbox"
+                      className="file-select"
+                      checked={selectedIds.has(file.id)}
+                      onChange={() => toggleSelected(file.id)}
+                      disabled={online === false}
+                      aria-label={`选择 ${file.name}`}
+                    />
+                    <span className="file-icon file-ext" aria-hidden>{fileExtension(file.name)}</span>
+                    <div className="file-main" title={file.name}>
+                      <div className="file-name">{file.name}</div>
+                      <div className="file-status">
+                        {formatBytes(file.size)} · SHA-256 {file.sha256.slice(0, 10)}…
+                      </div>
                     </div>
-                  </div>
-                  <div className="file-actions">
-                    {desktop ? (
-                      <>
-                        <button
-                          type="button"
-                          className="btn btn-small btn-ghost"
-                          onClick={() => void saveDownload(file)}
-                          disabled={online === false || savingId !== null || batchSaving || batchDeleting}
-                          title={`保存 ${file.name}`}
-                        >
-                          {savingId === file.id ? '保存中…' : savedPaths[file.id] ? '重新保存' : (<><Icon name="download" size={14} /> 保存</>)}
-                        </button>
-                        {savedPaths[file.id] && (
+                    <div className="file-actions">
+                      {desktop ? (
+                        <>
                           <button
                             type="button"
-                            className="btn btn-icon"
-                            onClick={() => openPath(savedPaths[file.id])}
-                            title="打开所在文件夹"
-                            aria-label="打开所在文件夹"
+                            className="btn btn-small btn-ghost"
+                            onClick={() => void saveDownload(file)}
+                            disabled={online === false || savingId !== null || batchSaving || batchDeleting}
+                            title={`保存 ${file.name}`}
                           >
-                            <Icon name="folder" size={14} />
+                            {savingId === file.id ? '保存中…' : savedPaths[file.id] ? '重新保存' : (<><Icon name="download" size={14} /> 保存</>)}
                           </button>
-                        )}
-                      </>
-                    ) : (
-                      <a
-                        className={`btn btn-small btn-ghost${online === false ? ' is-disabled' : ''}`}
-                        href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
-                        download={file.name}
-                        aria-disabled={online === false}
-                        onClick={(event) => {
-                          if (online === false) {
-                            event.preventDefault();
-                            return;
-                          }
-                          setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' });
-                        }}
-                        title={`下载 ${file.name}`}
-                        aria-label={`下载 ${file.name}`}
+                          {savedPaths[file.id] && (
+                            <button
+                              type="button"
+                              className="btn btn-icon"
+                              onClick={() => openPath(savedPaths[file.id])}
+                              title="打开所在文件夹"
+                              aria-label="打开所在文件夹"
+                            >
+                              <Icon name="folder" size={14} />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <a
+                          className={`btn btn-small btn-ghost${online === false ? ' is-disabled' : ''}`}
+                          href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
+                          download={file.name}
+                          aria-disabled={online === false}
+                          onClick={(event) => {
+                            if (online === false) {
+                              event.preventDefault();
+                              return;
+                            }
+                            setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' });
+                          }}
+                          title={`下载 ${file.name}`}
+                          aria-label={`下载 ${file.name}`}
+                        >
+                          <Icon name="download" size={14} />
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-icon"
+                        onClick={() => void deleteFile(file.id)}
+                        disabled={online === false}
+                        title={`删除 ${file.name}`}
+                        aria-label={`删除 ${file.name}`}
                       >
-                        <Icon name="download" size={14} />
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-icon"
-                      onClick={() => void deleteFile(file.id)}
-                      disabled={online === false}
-                      title={`删除 ${file.name}`}
-                      aria-label={`删除 ${file.name}`}
-                    >
-                      <Icon name="trash" size={14} />
-                    </button>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1975,116 +1991,120 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           </div>
         </article>
 
-        <article className={`card progress-card${hasActiveTransfer ? '' : ' is-idle'}`}>
-          <div className="rate-grid">
-            <RateCard
-              label="上传"
-              icon="↑"
-              speed={shownUploadSpeed}
-              peak={uploadPeak}
-              total={uploadTotal}
-              history={uploadHistory}
-              tone="blue"
-            />
-            <RateCard
-              label="下载"
-              icon="↓"
-              speed={shownDownloadSpeed}
-              peak={downloadPeak}
-              total={downloadTotal}
-              history={downloadHistory}
-              tone="green"
-            />
-          </div>
+        <div className={`progress-column${hasActiveTransfer ? '' : ' is-idle'}`}>
+          <RateCard
+            label="上传"
+            direction="upload"
+            speed={shownUploadSpeed}
+            peak={uploadPeak}
+            total={uploadTotal}
+            history={uploadHistory}
+            tone="blue"
+          >
+            {upload && (
+              <div className="reveal">
+                <div className="progress-block">
+                  <div className="progress-row">
+                    <span className="progress-title">
+                      {uploadIsBatch
+                        ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个 · ${upload.name}`
+                        : `上传 ${upload.name}`}
+                    </span>
+                    <strong>{uploadPercent}%</strong>
+                  </div>
+                  <div className="progress-bar" role="progressbar" aria-label={uploadIsBatch ? '上传总进度' : undefined} aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadPercent}>
+                    <div className="progress-fill" style={{ width: `${uploadPercent}%` }} />
+                  </div>
+                  <div className="progress-meta">
+                    <span>{formatBytes(uploadLoadedBytes)} / {formatBytes(uploadTotalBytes)}</span>
+                    {upload.status === 'uploading' && <span>{formatBytes(uploadSpeed)}/s</span>}
+                    {(upload.status === 'uploading' || upload.status === 'retrying') && <span>剩余 {formatDuration(uploadEta)}</span>}
+                    {upload.status === 'done' && (
+                      <span className="upload-done">
+                        <Icon name="check" size={13} /> {uploadPercent >= 100 ? '已上传' : '当前文件已上传'}
+                      </span>
+                    )}
+                    {upload.status === 'retrying' && !upload.checking && <span>连接中断，正在重试…</span>}
+                    {upload.checking && <span>正在核对服务器已保存进度…</span>}
+                    {upload.status === 'cancelled' && <span>已取消，可继续上传</span>}
+                    {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
+                  </div>
+                  {(upload.status === 'uploading' || upload.status === 'retrying') && (
+                    <button type="button" className="btn btn-small btn-ghost" onClick={cancelUpload}>
+                      取消
+                    </button>
+                  )}
+                  {upload.status === 'error' && upload.file && (
+                    <button type="button" className="btn btn-small btn-primary" onClick={resumeUpload}>
+                      继续上传
+                    </button>
+                  )}
+                  {upload.status === 'cancelled' && upload.file && (
+                    <button type="button" className="btn btn-small" onClick={resumeUpload}>
+                      重新上传
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </RateCard>
 
-          {upload && (
-            <div className="progress-block">
-              <div className="progress-row">
-                <span className="progress-title">
-                  {uploadIsBatch
-                    ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个 · ${upload.name}`
-                    : `上传 ${upload.name}`}
-                </span>
-                <strong>{uploadPercent}%</strong>
+          <RateCard
+            label="下载"
+            direction="download"
+            speed={shownDownloadSpeed}
+            peak={downloadPeak}
+            total={downloadTotal}
+            history={downloadHistory}
+            tone="green"
+          >
+            {showLiveUpload && visibleLiveUpload && (
+              <div className="reveal">
+                <div className="progress-block">
+                  <div className="progress-row">
+                    <span className="progress-title">接收 {visibleLiveUpload.name}</span>
+                    <strong>{livePercent}%</strong>
+                  </div>
+                  <div className="progress-bar" role="progressbar" aria-label="接收进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={livePercent}>
+                    <div className="progress-fill" style={{ width: `${livePercent}%` }} />
+                  </div>
+                  <div className="progress-meta">
+                    <span>{formatBytes(visibleLiveUpload.loaded)} / {formatBytes(visibleLiveUpload.total)}</span>
+                    {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
+                    {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
+                  </div>
+                </div>
               </div>
-              <div className="progress-bar" role="progressbar" aria-label={uploadIsBatch ? '上传总进度' : undefined} aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadPercent}>
-                <div className="progress-fill" style={{ width: `${uploadPercent}%` }} />
-              </div>
-              <div className="progress-meta">
-                <span>{formatBytes(uploadLoadedBytes)} / {formatBytes(uploadTotalBytes)}</span>
-                {upload.status === 'uploading' && <span>{formatBytes(uploadSpeed)}/s</span>}
-                {(upload.status === 'uploading' || upload.status === 'retrying') && <span>剩余 {formatDuration(uploadEta)}</span>}
-                {upload.status === 'done' && (
-                  <span className="upload-done">
-                    <Icon name="check" size={13} /> {uploadPercent >= 100 ? '已上传' : '当前文件已上传'}
-                  </span>
-                )}
-                {upload.status === 'retrying' && !upload.checking && <span>连接中断，正在重试…</span>}
-                {upload.checking && <span>正在核对服务器已保存进度…</span>}
-                {upload.status === 'cancelled' && <span>已取消，可继续上传</span>}
-                {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
+            )}
 
+            {activeDownload && (
+              <div className="reveal">
+                <div className="progress-block">
+                  <div className="progress-row">
+                    <span className="progress-title">保存 {activeDownload.name}</span>
+                    <strong>{downloadPercent}%</strong>
+                  </div>
+                  <div className="progress-bar" role="progressbar" aria-label="保存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadPercent}>
+                    <div className="progress-fill" style={{ width: `${downloadPercent}%` }} />
+                  </div>
+                  <div className="progress-meta">
+                    <span>{formatBytes(activeDownload.loaded)} / {formatBytes(activeDownload.total)}</span>
+                    {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
+                    {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
+                    <button
+                      type="button"
+                      className="btn btn-small btn-ghost"
+                      onClick={cancelDownload}
+                      disabled={activeDownload.status === 'cancelling'}
+                    >
+                      {activeDownload.status === 'cancelling' ? '取消中…' : '取消'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              {(upload.status === 'uploading' || upload.status === 'retrying') && (
-                <button type="button" className="btn btn-small btn-ghost" onClick={cancelUpload}>
-                  取消
-                </button>
-              )}
-              {upload.status === 'error' && upload.file && (
-                <button type="button" className="btn btn-small btn-primary" onClick={resumeUpload}>
-                  继续上传
-                </button>
-              )}
-              {upload.status === 'cancelled' && upload.file && (
-                <button type="button" className="btn btn-small" onClick={resumeUpload}>
-                  重新上传
-                </button>
-              )}
-            </div>
-          )}
-
-          {showLiveUpload && visibleLiveUpload && (
-            <div className="progress-block">
-              <div className="progress-row">
-                <span className="progress-title">接收 {visibleLiveUpload.name}</span>
-                <strong>{livePercent}%</strong>
-              </div>
-              <div className="progress-bar" role="progressbar" aria-label="接收进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={livePercent}>
-                <div className="progress-fill" style={{ width: `${livePercent}%` }} />
-              </div>
-              <div className="progress-meta">
-                <span>{formatBytes(visibleLiveUpload.loaded)} / {formatBytes(visibleLiveUpload.total)}</span>
-                {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
-                {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
-              </div>
-            </div>
-          )}
-
-          {activeDownload && (
-            <div className="progress-block">
-              <div className="progress-row">
-                <span className="progress-title">保存 {activeDownload.name}</span>
-                <strong>{downloadPercent}%</strong>
-              </div>
-              <div className="progress-bar" role="progressbar" aria-label="保存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadPercent}>
-                <div className="progress-fill" style={{ width: `${downloadPercent}%` }} />
-              </div>
-              <div className="progress-meta">
-                <span>{formatBytes(activeDownload.loaded)} / {formatBytes(activeDownload.total)}</span>
-                {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
-                {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
-                <button
-                  type="button"
-                  className="btn btn-small btn-ghost"
-                  onClick={cancelDownload}
-                  disabled={activeDownload.status === 'cancelling'}
-                >
-                  {activeDownload.status === 'cancelling' ? '取消中…' : '取消'}
-                </button>
-              </div>
-            </div>
-          )}
-        </article>
+            )}
+          </RateCard>
+        </div>
 
         <article className="card connection-card">
           <div className="card-head">

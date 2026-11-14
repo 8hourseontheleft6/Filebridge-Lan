@@ -124,21 +124,23 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
       ) : (
         <div className="nearby-list">
           {peers.map((peer) => (
-            <div className="nearby-row" key={peer.id}>
-              <span className="nearby-icon" aria-hidden><Icon name="device" size={16} /></span>
-              <div className="nearby-main">
-                <strong>{peer.name}</strong>
-                <span>{peer.ip}:{peer.port} · v{peer.version}</span>
+            <div className="reveal" key={peer.id}>
+              <div className="nearby-row">
+                <span className="nearby-icon" aria-hidden><Icon name="device" size={16} /></span>
+                <div className="nearby-main">
+                  <strong>{peer.name}</strong>
+                  <span>{peer.ip}:{peer.port} · v{peer.version}</span>
+                </div>
+                {activePeerId === peer.id ? (
+                  <span className={`nearby-state ${activeState}`}>
+                    {activeState === 'connected' ? '已连接' : '等待确认…'}
+                  </span>
+                ) : (
+                  <button type="button" className="btn btn-primary btn-small" onClick={() => onConnect(peer)}>
+                    连接
+                  </button>
+                )}
               </div>
-              {activePeerId === peer.id ? (
-                <span className={`nearby-state ${activeState}`}>
-                  {activeState === 'connected' ? '已连接' : '等待确认…'}
-                </span>
-              ) : (
-                <button type="button" className="btn btn-primary btn-small" onClick={() => onConnect(peer)}>
-                  连接
-                </button>
-              )}
             </div>
           ))}
         </div>
