@@ -1415,6 +1415,53 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     });
   }, [files]);
 
+  // Files can be dropped anywhere in the window; the list itself is not a drop target.
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types || []).includes('Files');
+    const onEnter = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      depth += 1;
+      if (online !== false) setDragging(true);
+    };
+    const onOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = online === false ? 'none' : 'copy';
+      if (online !== false) setDragging(true);
+    };
+    const onLeave = () => {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const onDrop = (event: DragEvent) => {
+      depth = 0;
+      setDragging(false);
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (online === false) return;
+      const dropped = event.dataTransfer?.files;
+      if (dropped && dropped.length > 0) void handleFiles(dropped);
+    };
+    const onDragEnd = () => {
+      depth = 0;
+      setDragging(false);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    window.addEventListener('dragend', onDragEnd);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragend', onDragEnd);
+    };
+  }, [handleFiles, online]);
+
   const phoneBase = resolvePhoneBase(info);
   const phoneUrl = phoneBase && sessionCode
     ? `${phoneBase}/#code=${encodeURIComponent(sessionCode)}`
@@ -1797,11 +1844,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             </div>
             <div className="card-actions">
               <span className="count-badge">{files.length}</span>
-              {files.length > 0 && (
-                <button type="button" className="btn btn-ghost btn-small" onClick={toggleSelectAll} disabled={online === false}>
-                  {allSelected ? '取消全选' : '全选'}
-                </button>
-              )}
               {selectedIds.size > 0 && (
                 <button
                   type="button"
@@ -1822,6 +1864,32 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   {batchDeleting ? '删除中…' : `删除所选 (${selectedIds.size})`}
                 </button>
               )}
+              {files.length > 0 && (
+                <button
+                  type="button"
+                  className={`btn btn-ghost btn-icon-round${allSelected ? ' is-active' : ''}`}
+                  onClick={toggleSelectAll}
+                  disabled={online === false}
+                  aria-pressed={allSelected}
+                  aria-label={allSelected ? '取消全选' : '全选'}
+                  title={allSelected ? '取消全选' : '全选'}
+                >
+                  <Icon name="check" size={15} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon-round"
+                onClick={() => {
+                  if (online === false) return;
+                  inputRef.current?.click();
+                }}
+                disabled={online === false}
+                aria-label="选择文件上传"
+                title="选择文件上传"
+              >
+                <Icon name="plus" size={15} />
+              </button>
               {desktop && (
                 <button type="button" className="btn btn-ghost btn-icon-round" onClick={openDownloadDir} title="打开下载文件夹" aria-label="打开下载文件夹">
                   <Icon name="folder" size={14} />
@@ -1844,47 +1912,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
               <Icon name="alert" size={14} /> 离线缓存，可能已过期
             </p>
           )}
-
-          <div
-            className={`drop-zone${dragging ? ' dragging' : ''}${online === false ? ' is-disabled' : ''}`}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              if (online === false) return;
-              if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
-            }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              if (online === false) return;
-              setDragging(true);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              if (online === false) return;
-              if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onClick={() => {
-              if (online === false) return;
-              inputRef.current?.click();
-            }}
-            onKeyDown={(e) => {
-              if (online === false) return;
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                inputRef.current?.click();
-              }
-            }}
-            role="button"
-            tabIndex={online === false ? -1 : 0}
-            aria-disabled={online === false}
-            aria-label="选择文件上传到电脑"
-          >
-            <span className="drop-icon" aria-hidden><Icon name="plus" size={20} /></span>
-            <p><strong>选择文件</strong>，或拖放到这里</p>
-            <p className="hint">支持多选 / 拖放</p>
-          </div>
 
           {needsPicker && (
             <div className="ios-media-picker">
@@ -1947,6 +1974,11 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           <div className={`file-list-wrap${files.length > 0 ? ' has-files' : ''}`}>
             <div className="file-list">
+              {fileRows.length === 0 && (
+                <p className="file-list-empty">
+                  把文件拖到窗口任意位置，或点右上角 <Icon name="plus" size={13} /> 上传
+                </p>
+              )}
               {fileRows.map(({ key, item: file, leaving }) => (
                 <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
                   <div className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
@@ -2042,9 +2074,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 <div className="progress-block">
                   <div className="progress-row">
                     <span className="progress-title">
-                      {uploadIsBatch
-                        ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个 · ${upload.name}`
-                        : `上传 ${upload.name}`}
+                      {uploadIsBatch ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个` : '上传中'}
                     </span>
                     <strong>{uploadPercent}%</strong>
                   </div>
@@ -2052,7 +2082,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     tone="blue"
                     label={uploadIsBatch ? '上传总进度' : '上传进度'}
                     percent={uploadPercent}
-                    speed={shownUploadSpeed}
                     history={uploadHistory}
                   />
                   <div className="progress-meta">
@@ -2067,12 +2096,18 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     {upload.checking && <span>正在核对服务器已保存进度…</span>}
                     {upload.status === 'cancelled' && <span>已取消，可继续上传</span>}
                     {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
+                    {(upload.status === 'uploading' || upload.status === 'retrying') && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-icon-round"
+                        onClick={cancelUpload}
+                        aria-label="取消上传"
+                        title="取消上传"
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    )}
                   </div>
-                  {(upload.status === 'uploading' || upload.status === 'retrying') && (
-                    <button type="button" className="btn btn-small btn-ghost" onClick={cancelUpload}>
-                      取消
-                    </button>
-                  )}
                   {upload.status === 'error' && upload.file && (
                     <button type="button" className="btn btn-small btn-primary" onClick={resumeUpload}>
                       继续上传
@@ -2108,14 +2143,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   {key === 'receive' && live && (
                     <div className="progress-block">
                       <div className="progress-row">
-                        <span className="progress-title">接收 {live.name}</span>
+                        <span className="progress-title">接收中</span>
                         <strong>{livePct}%</strong>
                       </div>
                       <TransferMeter
                         tone="green"
                         label="接收进度"
                         percent={livePct}
-                        speed={shownUploadSpeed}
                         history={uploadHistory}
                       />
                       <div className="progress-meta">
@@ -2127,14 +2161,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                   {key === 'save' && save && (
                     <div className="progress-block">
                       <div className="progress-row">
-                        <span className="progress-title">保存 {save.name}</span>
+                        <span className="progress-title">保存中</span>
                         <strong>{savePct}%</strong>
                       </div>
                       <TransferMeter
                         tone="green"
                         label="保存进度"
                         percent={savePct}
-                        speed={shownDownloadSpeed}
                         history={downloadHistory}
                       />
                       <div className="progress-meta">
@@ -2142,11 +2175,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                         {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
                         <button
                           type="button"
-                          className="btn btn-small btn-ghost"
+                          className="btn btn-ghost btn-icon-round"
                           onClick={cancelDownload}
                           disabled={save.status === 'cancelling'}
+                          aria-label="取消保存"
+                          title="取消保存"
                         >
-                          {save.status === 'cancelling' ? '取消中…' : '取消'}
+                          <Icon name={save.status === 'cancelling' ? 'refresh' : 'close'} size={14} className={save.status === 'cancelling' ? 'is-spinning' : undefined} />
                         </button>
                       </div>
                     </div>
@@ -2221,6 +2256,16 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
       </div>
 
+
+      {dragging && (
+        <div className="drop-overlay" role="status">
+          <div className="drop-overlay-card">
+            <span className="drop-overlay-icon" aria-hidden><Icon name="plus" size={20} /></span>
+            <strong>松开即可上传</strong>
+            <span>窗口任意位置都可以放下文件</span>
+          </div>
+        </div>
+      )}
 
       {peerFrame && (
         <div className="peer-frame-overlay">

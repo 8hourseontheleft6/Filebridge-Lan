@@ -1,22 +1,20 @@
 import { useId } from 'react';
-import { formatBytes } from '../lib/format';
 
 interface TransferMeterProps {
   tone: 'blue' | 'green';
   label: string;
   percent: number;
-  speed: number;
   history: number[];
 }
 
 const ACCENT = { blue: '#5b9cf6', green: '#43b981' } as const;
 
 /**
- * Explorer-style transfer meter: the completed share of the track, the live
- * speed shape and the current speed sit in one bordered box instead of a bare
- * progress bar next to a second readout.
+ * Explorer-style transfer meter: the completed share of the track and the live
+ * speed shape share one box instead of a bare progress bar next to a second
+ * readout. The speed number itself lives in the card's big reading above.
  */
-export function TransferMeter({ tone, label, percent, speed, history }: TransferMeterProps) {
+export function TransferMeter({ tone, label, percent, history }: TransferMeterProps) {
   const gradientId = `meter-${useId().replace(/:/g, '')}`;
   const accent = ACCENT[tone];
   const values = history.length > 1 ? history : [0, 0];
@@ -59,9 +57,6 @@ export function TransferMeter({ tone, label, percent, speed, history }: Transfer
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <span className="transfer-meter-speed">
-        速度 {speed > 0 ? `${formatBytes(speed)}/s` : '0B/s'}
-      </span>
     </div>
   );
 }

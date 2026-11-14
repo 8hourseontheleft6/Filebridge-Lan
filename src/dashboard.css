@@ -3897,28 +3897,6 @@ input {
   height: 100%;
 }
 
-.transfer-meter-speed {
-  position: absolute;
-  top: 50%;
-  right: 7px;
-  transform: translateY(-50%);
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #41516a;
-  font-size: 0.68rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.transfer-meter.green .transfer-meter-speed {
-  color: #23734f;
-}
-
-.transfer-meter.blue .transfer-meter-speed {
-  color: #2c60a8;
-}
-
 /* Round QR actions, aligned with the bottom edge of the code. */
 .connection-card .qr-card {
   align-items: flex-end;
@@ -3946,5 +3924,136 @@ input {
 @media (prefers-reduced-motion: reduce) {
   .transfer-meter-fill {
     transition: none;
+  }
+}
+/*
+ * Annotation pass 5: the file list is one fixed-size list (no dashed drop
+ * zone), the whole window accepts drops, and the transfer readouts lose the
+ * duplicated speed / long titles.
+ */
+.files-card {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 900px) {
+  .files-card {
+    height: 260px;
+    min-height: 0;
+  }
+}
+
+.file-list-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 12px;
+  opacity: 1;
+  transform: none;
+  transition: none;
+}
+
+.file-list-wrap > .file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+@media (max-width: 899px) {
+  .file-list-wrap > .file-list {
+    max-height: 300px;
+  }
+}
+
+.file-list-empty {
+  margin: auto;
+  padding: 12px 8px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 1.65;
+  text-align: center;
+}
+
+.file-list-empty svg {
+  vertical-align: -2px;
+  color: #5b9cf6;
+}
+
+/* Window-wide drop target: the whole app lights up instead of one dashed box. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: grid;
+  place-items: center;
+  background: rgba(232, 242, 255, 0.62);
+  pointer-events: none;
+}
+
+.drop-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border: 2px dashed rgba(47, 124, 246, 0.5);
+  border-radius: 16px;
+}
+
+.drop-overlay-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 18px 24px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 45px rgba(25, 45, 80, 0.18);
+  color: #2b3b52;
+  text-align: center;
+}
+
+.drop-overlay-card strong {
+  font-size: 0.92rem;
+}
+
+.drop-overlay-card span {
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+
+.drop-overlay-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #eaf2ff;
+  color: var(--primary-strong);
+}
+
+/* One-line transfer readouts: numbers line up, no wrapped title. */
+.progress-row strong,
+.progress-meta {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.progress-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Rows keep their natural height so a long list scrolls instead of squashing. */
+.file-list > .reveal {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 900px) {
+  .files-card {
+    height: 300px;
+  }
+
+  .progress-column {
+    min-height: 300px;
   }
 }
