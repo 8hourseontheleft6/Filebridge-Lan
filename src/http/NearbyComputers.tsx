@@ -91,13 +91,13 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
       <div className="card-head">
         <div>
           <h2>附近电脑</h2>
-          <p>自动发现同一局域网内也打开 Filebridge 的电脑。</p>
+          <p>自动发现同网段的 Filebridge 电脑。</p>
         </div>
         <div className="card-actions">
           {peers.length > 0 && <span className="count-badge">{peers.length}</span>}
           <button
             type="button"
-            className="btn btn-ghost btn-small btn-icon-refresh"
+            className="btn btn-ghost btn-icon-round"
             aria-label="刷新附近电脑"
             title="刷新"
             onClick={() => { spinRefresh(); void refresh(); }}
@@ -119,7 +119,7 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
         </div>
       ) : peers.length === 0 ? (
         <div className="nearby-empty">
-          <span>暂时没有发现其他电脑 · 确认同一子网且为专用网络</span>
+          <span>暂未发现其他电脑 · 确认同一子网且为专用网络</span>
         </div>
       ) : (
         <div className="nearby-list">

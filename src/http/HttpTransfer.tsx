@@ -1774,13 +1774,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 </button>
               )}
               {desktop && (
-                <button type="button" className="btn btn-ghost btn-small" onClick={openDownloadDir} title="打开下载文件夹">
-                  <Icon name="folder" size={14} /> 打开
+                <button type="button" className="btn btn-ghost btn-icon-round" onClick={openDownloadDir} title="打开下载文件夹" aria-label="打开下载文件夹">
+                  <Icon name="folder" size={14} />
                 </button>
               )}
               <button
                 type="button"
-                className="btn btn-ghost btn-small btn-icon-refresh"
+                className="btn btn-ghost btn-icon-round"
                 aria-label="刷新文件列表"
                 title="刷新"
                 onClick={() => { spinRefresh(); void refresh(); }}
@@ -1976,13 +1976,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         </article>
 
         <article className={`card progress-card${hasActiveTransfer ? '' : ' is-idle'}`}>
-          <div className="card-head">
-            <div>
-              {hasActiveTransfer && <p>上传、接收和保存的实时状态。</p>}
-            </div>
-            {!hasActiveTransfer && <span className="status-pill warn">空闲</span>}
-          </div>
-
           <div className="rate-grid">
             <RateCard
               label="上传"
@@ -2032,25 +2025,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
 
               </div>
-              <details className="upload-diag" open={upload.status === 'error'}>
-                <summary>上传诊断</summary>
-                <dl>
-                  <dt>模式</dt><dd><select value={transport} onChange={(event) => setTransport(event.target.value as UploadTransport)} aria-label="上传传输方式"><option value="xhr-blob">XHR Blob</option><option value="fetch-blob">Fetch Blob</option></select> · {uploadDiagnostic?.mode}</dd>
-                  <dt>分块</dt><dd>{formatBytes(uploadDiagnostic?.chunkBytes || 0)}</dd>
-                  <dt>浏览器已发送</dt><dd>{formatBytes(uploadDiagnostic?.browserSent || 0)}</dd>
-                  <dt>服务器请求已读取</dt><dd>{uploadDiagnostic?.serverBodyRead == null ? '—' : formatBytes(uploadDiagnostic.serverBodyRead)}</dd>
-                  <dt>服务端落盘</dt><dd>{uploadDiagnostic?.serverPartSize == null ? '—' : formatBytes(uploadDiagnostic.serverPartSize)}</dd>
-                  <dt>客户端确认 offset</dt><dd>{formatBytes(uploadDiagnostic?.serverConfirmed || 0)}</dd>
-                  <dt>请求状态</dt><dd>{uploadDiagnostic?.serverBodyState ?? '—'} · {uploadDiagnostic?.requestPhase ?? '—'}</dd>
-                  <dt>服务端状态码</dt><dd>{uploadDiagnostic?.serverStatusCode ?? '—'}</dd>
-                  <dt>Content-Length</dt><dd>{uploadDiagnostic?.contentLength ?? '—'}</dd>
-                  <dt>Transfer-Encoding</dt><dd>{uploadDiagnostic?.transferEncoding ?? '—'}</dd>
-                  <dt>Expect</dt><dd>{uploadDiagnostic?.expect ?? '—'}</dd>
-                  <dt>耗时</dt><dd>{uploadDiagnostic?.durationMs == null ? '—' : `${uploadDiagnostic.durationMs}ms`}</dd>
-                  {uploadDiagnostic?.serverLastError && <><dt>请求错误</dt><dd>{uploadDiagnostic.serverLastError}</dd></>}
-                </dl>
-                <CopyButton text={JSON.stringify(uploadDiagnostic, null, 2)} label="复制上传诊断" />
-              </details>
               {(upload.status === 'uploading' || upload.status === 'retrying') && (
                 <button type="button" className="btn btn-small btn-ghost" onClick={cancelUpload}>
                   取消
@@ -2064,11 +2038,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
               {upload.status === 'cancelled' && upload.file && (
                 <button type="button" className="btn btn-small" onClick={resumeUpload}>
                   重新上传
-                </button>
-              )}
-              {upload.status === 'done' && desktop && (
-                <button type="button" className="btn btn-small btn-ghost" onClick={() => void openDownloadDir()}>
-                  打开下载文件夹
                 </button>
               )}
             </div>
