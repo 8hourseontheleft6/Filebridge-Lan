@@ -2087,6 +2087,28 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                           <Icon name="close" size={14} />
                         </button>
                       )}
+                      {upload.status === 'error' && upload.file && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-icon-round"
+                          onClick={resumeUpload}
+                          aria-label="继续上传"
+                          title="继续上传"
+                        >
+                          <Icon name="refresh" size={14} />
+                        </button>
+                      )}
+                      {upload.status === 'cancelled' && upload.file && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-icon-round"
+                          onClick={resumeUpload}
+                          aria-label="重新上传"
+                          title="重新上传"
+                        >
+                          <Icon name="refresh" size={14} />
+                        </button>
+                      )}
                     </span>
                   </div>
                   <div className="progress-meta">
@@ -2099,19 +2121,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     )}
                     {upload.status === 'retrying' && !upload.checking && <span>连接中断，正在重试…</span>}
                     {upload.checking && <span>正在核对服务器已保存进度…</span>}
-                    {upload.status === 'cancelled' && <span>已取消，可继续上传</span>}
                     {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
                   </div>
-                  {upload.status === 'error' && upload.file && (
-                    <button type="button" className="btn btn-small btn-primary" onClick={resumeUpload}>
-                      继续上传
-                    </button>
-                  )}
-                  {upload.status === 'cancelled' && upload.file && (
-                    <button type="button" className="btn btn-small" onClick={resumeUpload}>
-                      重新上传
-                    </button>
-                  )}
                 </div>
               </div>
             )}
