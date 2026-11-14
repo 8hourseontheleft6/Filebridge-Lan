@@ -281,10 +281,27 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
       <div className="card-head">
         <div>
           <h2>文字同步</h2>
-          <p>{enabled ? '仅在当前已批准连接内交换纯文本。' : '默认关闭；开启后只同步纯文本，不写入磁盘。'}</p>
+          <p>
+            {enabled
+              ? '只在当前已批准连接内同步纯文本，内容只存内存、不写入磁盘。'
+              : '开启后只同步纯文本，不写入磁盘。'}
+          </p>
         </div>
-        <span className={`status-pill ${enabled ? (paused ? 'warn' : 'ok') : 'warn'}`}>{status}</span>
+        <div className="clipboard-head-status">
+          <span className={`status-pill ${enabled ? (paused ? 'warn' : 'ok') : 'warn'}`}>{status}</span>
+          {enabled && canEnable && (
+            <button type="button" className="btn btn-ghost btn-small" disabled={busy} onClick={() => void toggle()}>
+              关闭同步
+            </button>
+          )}
+        </div>
       </div>
+
+      {enabled && (
+        <p className="clipboard-default-note">
+          <Icon name="help" size={13} /> 文字同步默认开启；关闭后桌面与手机都不再收发文本。
+        </p>
+      )}
 
       {!enabled ? (
         <div className="clipboard-off">
@@ -306,24 +323,21 @@ export function ClipboardPanel({ token, desktop, online, publicPaused }: Clipboa
             </div>
             <pre className="clipboard-text" tabIndex={0}>{text || '暂无文本'}</pre>
             <div className="clipboard-actions">
-              <button type="button" className="btn btn-small" disabled={!text} onClick={() => void copyLatest()}>
+              <button type="button" className="btn btn-small btn-primary" disabled={!text} onClick={() => void copyLatest()}>
                 <Icon name="copy" size={14} /> {copied ? '已复制' : '复制'}
-              </button>
-              <button type="button" className="btn btn-small btn-ghost" onClick={() => void readClipboard()}>
-                从剪贴板读取
               </button>
               <button type="button" className="btn btn-small btn-ghost" disabled={busy || !text} onClick={() => void clear()}>
                 清空
               </button>
-              {canEnable && (
-                <button type="button" className="btn btn-small btn-ghost" disabled={busy} onClick={() => void toggle()}>
-                  关闭同步
-                </button>
-              )}
             </div>
           </div>
           <div className="clipboard-compose">
-            <label className="field-label" htmlFor="clipboard-draft">发送文本</label>
+            <div className="clipboard-compose-head">
+              <label className="field-label" htmlFor="clipboard-draft">发送文本</label>
+              <button type="button" className="btn btn-small btn-ghost" onClick={() => void readClipboard()}>
+                从剪贴板读取
+              </button>
+            </div>
             <textarea
               id="clipboard-draft"
               className="clipboard-input"

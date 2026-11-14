@@ -1202,7 +1202,7 @@ async fn upload(
     Query(query): Query<UploadQuery>,
     headers: HeaderMap,
     body: Body,
-) -> ApiResult<Json<Meta>> {
+) -> ApiResult<(StatusCode, Json<Meta>)> {
     let raw_name = query
         .name
         .ok_or_else(|| ApiError::bad_request("缺少 name 参数"))?;
@@ -1225,7 +1225,8 @@ async fn upload(
         let _ = tokio::fs::remove_file(&part).await;
     }
 
-    outcome.map(Json)
+    // Created: the Node Hub answers 201 here too, and clients branch on the status.
+    outcome.map(|meta| (StatusCode::CREATED, Json(meta)))
 }
 
 async fn store_upload(
@@ -1372,7 +1373,7 @@ async fn upload_chunk(
     Query(query): Query<UploadChunkQuery>,
     headers: HeaderMap,
     body: Body,
-) -> ApiResult<Json<UploadChunkResponse>> {
+) -> ApiResult<(StatusCode, Json<UploadChunkResponse>)> {
     let raw_name = query
         .name
         .ok_or_else(|| ApiError::bad_request("缺少 name 参数"))?;
@@ -1466,12 +1467,12 @@ async fn upload_chunk(
     if new_offset < total {
         state.diag_finish(&id, "ended", Some(200), None).await;
         state.emit_upload(&id, &name, new_offset, total, "progress");
-        return Ok(Json(UploadChunkResponse {
+        return Ok((StatusCode::OK, Json(UploadChunkResponse {
             id,
             offset: new_offset,
             complete: false,
             file: None,
-        }));
+        })));
     }
 
     let mime = headers
@@ -1500,15 +1501,16 @@ async fn upload_chunk(
         return Err(ApiError::internal(error));
     }
     state.inner.files.write().await.insert(id.clone(), meta.clone());
-    state.diag_finish(&id, "ended", Some(200), None).await;
+    state.diag_finish(&id, "ended", Some(201), None).await;
     state.emit_upload(&id, &meta.name, total, total, "completed");
     hub_log!("[hub] 分块上传完成: {} ({} bytes)", meta.name, total);
-    Ok(Json(UploadChunkResponse {
+    // Created: matches the Node Hub and /api/upload, so a client can branch on 201 alone.
+    Ok((StatusCode::CREATED, Json(UploadChunkResponse {
         id,
         offset: total,
         complete: true,
         file: Some(meta),
-    }))
+    })))
 }
 
 async fn upload_chunk_status(
@@ -1903,7 +1905,10 @@ mod tests {
             }),
             headers.clone(),
             Body::from(source[..2 * 1024 * 1024].to_vec()),
-        ).await.expect("first chunk").0;
+        ).await.expect("first chunk");
+        // Contract shared with the Node Hub: 200 while more bytes are expected, 201 when created.
+        assert_eq!(first.0, StatusCode::OK, "partial chunks must answer 200");
+        let first = first.1.0;
         assert_eq!(first.offset, 2 * 1024 * 1024);
         assert!(!first.complete);
 
@@ -1918,7 +1923,7 @@ mod tests {
             }),
             headers.clone(),
             Body::from(source[2 * 1024 * 1024..3 * 1024 * 1024].to_vec()),
-        ).await.expect("partial chunk").0;
+        ).await.expect("partial chunk").1.0;
         assert_eq!(partial.offset, 3 * 1024 * 1024);
         assert!(!partial.complete);
 
@@ -1953,7 +1958,9 @@ mod tests {
             }),
             headers,
             Body::from(source[confirmed as usize..].to_vec()),
-        ).await.expect("resume chunk").0;
+        ).await.expect("resume chunk");
+        assert_eq!(rest.0, StatusCode::CREATED, "the completing chunk must answer 201");
+        let rest = rest.1.0;
         assert!(rest.complete);
         assert_eq!(rest.file.as_ref().expect("file").size, total);
 

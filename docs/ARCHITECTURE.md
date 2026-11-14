@@ -1,6 +1,6 @@
 # Filebridge-Lan 架构
 
-> 1.5.3 现状：局域网 HTTP Hub + 配对码/bearer token；跨网络加密中继。WebRTC 房间已移除。
+> 1.6.0 现状：局域网 HTTP Hub + 配对码/bearer token + 分块续传 + 文字同步；跨网络加密中继为实验性。WebRTC 房间已移除。
 
 ## 局域网
 
@@ -13,9 +13,14 @@ Rust axum Hub (:42080)
    ├─ /api/pair           配对码 → 256-bit token（12h）
    ├─ /api/info           公开：版本/端口/IP/文件数
    ├─ /api/files          token 校验 → 文件元数据
-   ├─ /api/upload         token 校验 → 流式写盘 + SHA-256
-   ├─ /api/events         token 校验 → SSE 上传进度
+   ├─ /api/upload         token 校验 → 流式写盘 + SHA-256（201）
+   ├─ /api/upload/chunk   token 校验 → 分块续传（200 未完成 / 201 完成）
+   ├─ /api/upload/chunk/:id  token 校验 → 查询已确认 offset / 取消上传
+   ├─ /api/events         token 校验 → SSE 上传进度 + 5s heartbeat
    ├─ /api/files/:id      token 校验 → 下载/Range/删除
+   ├─ /api/clipboard      token 校验 → 文字同步读/写/清空
+   ├─ /api/clipboard/enabled  token + 仅 loopback → 开关文字同步
+   ├─ /api/connect/requests   连接请求（创建/查询/主机批准）
    └─ dist/              静态页面（SPA）
    │
    ▼
@@ -26,6 +31,7 @@ Downloads/Filebridge-Lan（或用户选择的下载目录）
 - 手机扫码链接带 `#code=...`；fragment 不发送到服务器
 - 桌面端通过 loopback + 本机 Origin 获取配对码；手机没有这个权限
 - 文件 API 使用 `Authorization: Bearer`；SSE/下载使用 `token` 查询参数
+- 上传类端点在 Node Hub 与 Rust Hub 使用同一契约：`201` 表示已创建，分块未收完返回 `200`
 - Host/Origin 白名单拒绝 DNS rebinding、null Origin 和任意域名
 - CORS 不再使用 `*`
 
@@ -75,7 +81,7 @@ Bridge Relay（:43000，HTTPS 反向代理）
 - 跨网络必须使用 HTTPS Relay；中继仍是实验性
 - 原生下载通过 Tauri 命令直接读 Hub 数据目录，不经过 HTTP token
 
-## 1.5.3 电脑互联
+## 电脑互联
 
 - Rust 桌面 Hub 通过 UDP 42081 广播发现信息（设备名、稳定实例 ID、Hub 端口、版本）
 - 前端“附近电脑”卡片轮询 Tauri `discovery_peers`，点击后在应用内嵌入目标 Hub 页面

@@ -5,7 +5,7 @@ Status: 1.6.0-preview.3. Node Hub and Rust Hub implement the same contract.
 ## Access
 
 - Every endpoint requires the existing approved bearer token. No token → `401`.
-- Enabling requires a loopback request (`127.0.0.1` / `::1`); remote phone → `403 clipboard_host_only`.
+- Enabling requires a loopback request (`127.0.0.1` / `::1`) **and** a valid bearer token; a remote caller gets `403 clipboard_host_only`.
 - The Hub starts enabled so the approved desktop session can begin syncing immediately. The user can disable it at any time, which clears the in-memory text.
 - Text is in memory only; no file, no discovery beacon, no URL query, no normal log.
 
@@ -57,7 +57,7 @@ Clears the current text; keeps the enabled state.
 
 ### `POST /api/clipboard/enabled`
 
-Loopback only:
+Requires a bearer token **and** a loopback request; a remote caller gets `403 clipboard_host_only`:
 
 ```json
 {"enabled": true}

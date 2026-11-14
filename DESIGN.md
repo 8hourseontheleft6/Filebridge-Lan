@@ -174,9 +174,9 @@ The upload/download rate values, percentages, and byte counts use Cambria with t
 
 ## Layout
 
-The desktop shell is a fixed 208px sidebar with a fluid workspace. The workspace uses `26px` top padding and a `clamp(18px, 3vw, 38px)` horizontal gutter. Content is a single-column stack of task cards with a `16px` gap; cards use `18px` padding and `16px` corners.
+The desktop shell is a fixed 208px sidebar with a fluid workspace. The workspace uses `26px` top padding and a `clamp(18px, 3vw, 38px)` horizontal gutter. Content is a stack of task cards on a `16px` gap; cards use `18px` padding and `16px` corners.
 
-The connected dashboard is deliberately single-column and task-first: files → progress → connection → nearby computers. The drop zone and transfer status occupy the first viewport; the QR/connection card follows as setup reference rather than the opening move. On a phone browser the connection card collapses to a one-line `已连接 … · 已配对` identity and never renders the QR. A single-card state such as the Public pause is capped at `760px`; a no-token connection state caps the connection card at `620px`.
+The connected dashboard is task-first. Above `900px` it becomes two columns — files on the left, the transfer panels on the right, then connection / nearby — with the clipboard card spanning full width last; below `900px` the same cards stack in one column. The file list and transfer status occupy the first viewport; the QR/connection card follows as setup reference rather than the opening move. On a phone browser the connection card collapses to a one-line `已连接 … · 已配对` identity and never renders the QR. A single-card state such as the Public pause is capped at `760px`; a no-token connection state caps the connection card at `620px`.
 
 At `860px` and below, the sidebar becomes a compact horizontal header and the workspace takes the full width. Navigation labels remain visible, but icons are hidden until `380px`. At `560px`, the page title drops to `1.25rem`, subtitles to `0.75rem`, the QR block stacks vertically, and controls wrap rather than compress. At `380px`, the brand name becomes visually hidden but remains available to assistive technology, and the three nav items become 44px icon-only controls with clipped text labels. Settings opens as a workspace page, and the upload diagnostic disclosure is collapsed by default.
 
@@ -214,7 +214,7 @@ Borders are one pixel and cool gray; do not use thick colored side borders, hard
 - **State:** green for online/paired/healthy, amber for experimental or caution, red for genuine faults, neutral for unavailable. The dot and text share the semantic color; the background is the corresponding soft tint. An online pill plays one short signal-settle on its dot when it becomes active.
 
 ### Cards / Containers
-- **Corner Style:** `16px` radius for top-level working cards; the drop target uses a `12px` rounded dashed boundary.
+- **Corner Style:** `16px` radius for top-level working cards; the drop overlay frame uses a `12px` rounded dashed boundary.
 - **Background:** Paper White for top-level cards; nested regions use spacing, dividers, or a border only—never a second white card surface.
 - **Shadow Strategy:** soft border-first lift as described above.
 - **Border:** one-pixel Hairline.
@@ -229,10 +229,11 @@ Borders are one pixel and cool gray; do not use thick colored side borders, hard
 - **Style:** a 208px white sidebar with a fixed foot; items are quiet `0.88rem` / 600 labels with a small icon slot.
 - **States:** transparent default, cool gray hover, pale blue active surface with Signal Blue Ink text. On mobile the sidebar becomes a compact horizontal row with the same active treatment; at 380px it becomes 44px icon-only navigation with visually clipped but accessible labels.
 
-### Mode Switch
-- **Style:** a full-width inset track in a cool gray, `11px` radius, `4px` padding; each tab is `8px` radius.
-- **Semantics:** a two-button `role="group"` toggle exposed through `aria-pressed`; it is not a tablist because there is no tabpanel relationship.
-- **States:** the inactive tab is transparent and muted; the active tab is Paper White with a small shadow and a short authored scale/opacity entrance.
+### Transfer Modes (sidebar)
+- **Structure:** transfer method is chosen in the sidebar (`传输方式` group), not by a top-of-page tab track: `局域网直传` is the primary item, and `跨网络中继` follows as a deliberately secondary item — muted text color, lighter weight, and an `实验` badge pushed to the right edge.
+- **Availability:** the relay entry only renders inside the desktop app. A browser client (the phone page) shows only `局域网直传`, `使用说明`, and `设置`, and never fetches the relay bundle.
+- **Relay notice:** selecting the relay shows one `mode-notice` banner above the workspace — the experimental warning plus a `返回局域网直传` action — instead of a persistent toggle. Keep it a calm note, not an error.
+- **Why not a tab track:** a two-tab `role="group"` switch gave the experimental relay the same visual weight as the default LAN path. Do not reintroduce it.
 
 ### Public Pause
 - **Style:** a calm, bounded card with a serif or CJK-sans heading, muted explanatory copy, and a single network-settings action. It settles in with a short opacity/translate entrance rather than appearing as an alarm.
@@ -243,23 +244,37 @@ Borders are one pixel and cool gray; do not use thick colored side borders, hard
 - **Behavior:** focus moves to the close control, Escape closes it, and the backdrop is dismissible. The guide never competes with the file list or transfer progress.
 
 ### Transfer Recovery
-- **Upload:** 4MB chunks with server-side offset resume, four automatic retries, then a persistent `继续上传` action. The upload state, chunk id, and offset are retained for the current page session.
-- **Batch progress:** when more than one file is selected, the progress bar reports aggregate bytes and percentage across the queue, with `第 n/N 个 · 当前文件名` in the title. Do not replace it with a per-file 100% bar.
-- **Cancel:** user cancellation is a neutral `已取消` state with `重新上传`; it never reads as a transfer failure.
-- **Completion:** the completed block stays visible with `打开下载文件夹`; success is not only a transient toast.
+- **Upload:** 4MB chunks (2MB on iOS Safari) with server-side offset resume, four automatic retries, then a persistent `继续上传` action. The upload state, chunk id, and offset are retained for the current page session.
+- **Batch progress:** when more than one file is selected, the block reports aggregate bytes across the queue with `总进度 · 第 n/N 个` in the title, and the per-file percentage is dropped rather than faked. Do not add a per-file 100% bar on top.
+- **Cancel:** user cancellation is a neutral `已取消` state; the same circular slot turns into `重新上传`, with no explanatory sentence added.
+- **Completion:** the finished block holds for about `1.6s` showing `已上传`, then collapses with the `.reveal` height transition. Desktop downloads still offer `打开下载文件夹`; success is not only a transient toast.
 - **Failure copy:** state the recovery available (继续上传) rather than only naming an error.
+
+### Transfer Panels (1.6.0)
+
+The transfer readout is two equal cards, one per direction, not a single shared meter. They are documented here as the existing implementation, not as a new direction: the palette, the two-voice typography, the border-first material system, and the `16px` card + `9px` control radii all stay as they are.
+
+- **Rate panels.** Upload and download are separate `.rate-panel` cards side by side in `.progress-column`, one blue and one green; the column carries `min-height: 300px` at `≥900px` so the pair lines up with the file card. Every card carries, top to bottom: a label row (`.rate-head` — direction icon + label on the left, `峰值` on the right), the live rate (`.rate-value`), the cumulative total (`.rate-total`, `累计 …`), the optional transfer blocks, and a bottom 24-sample `.rate-chart` fill-and-line sparkline (`62px` tall, bled to the card edges). The chart is anchored to the card's bottom edge and is tinted per direction; an idle card dims the chart rather than hiding it.
+- **Idle state.** `.progress-column.is-idle` drops the rate values to muted weight and lowers the chart opacity. Idle is a calm resting state, not an empty placeholder — keep the numbers legible so the user can still read `0 B/s` and the last cumulative total.
+- **Progress blocks.** Inside a card, each transfer is one `.progress-block`. Its first row is `.progress-row`: a `.progress-title` on the left (truncating with an ellipsis; `上传中` / `已上传` / `总进度 · 第 n/N 个` / `接收中` / `保存中`) and a `.progress-row-end` group on the right that holds the percentage plus the circular action (`✕` cancel, `↻` retry). The second row is `.progress-meta`: bytes `loaded / total`, the remaining-time hint, and the status text. Percentage and meta stay on the title baseline, so a long filename never pushes the cancel control off the row.
+- **Stacked blocks.** When a download is both arriving and being written to disk, the download card shows two blocks at once — `接收中` and `保存中` — separated by a `1px` divider and `12–13px` of space. Do not merge them into one bar: the two phases can finish at different times and the user needs to see which one is still running.
+- **File list.** `.file-list-wrap` is a flex region that fills its card, and the inner `.file-list` is capped at `max-height: 300px` with its own scroll. At `≥900px` the files card itself is `300px` tall so the list and the transfer panels share one aligned band; rows (`.file-row`) never compress to fit. A row reads as `.file-select` checkbox → `.file-ext` extension badge → `.file-name` + `.file-status` metadata (`size · SHA-256 prefix…`) → `.file-actions`. The empty state is written inside this list (`.file-list-empty`), not as a separate dashed drop zone.
+- **Selection target.** The drawn checkbox is `14px`, but it sits in a `.file-select-hit` label box so the clickable area can grow without moving the row: `44px` hit area at `≤860px` or on a coarse pointer, with the box itself drawn at `18px`. Never enlarge the visible square to `44px` — that would re-break the row rhythm.
+- **Drop overlay.** Dragging over the window raises one full-window `.drop-overlay`: a translucent veil, an `inset: 12px` `2px` dashed frame at `12px` radius, and a centered `.drop-overlay-card` with a round plus icon. The entrance is an authored sequence (veil → frame settle → card rise → plus pop) and the exit is faster; `prefers-reduced-motion` removes the animation but keeps the static veil, frame, and card. There is no per-page dashed drop box anymore.
+- **Round icon buttons.** `.btn-icon-round` is a `32px` circle (`999px` radius, centered icon) used for row-header and in-progress actions: select-all, choose files, open download folder, refresh, rotate pairing code, cancel, retry. On `≤860px` or any coarse pointer it becomes `44px`; inside `.progress-row-end` the touch size is `36px` so the row still fits. Destructive and batch actions keep their text-button form.
+- **Clipboard card.** The clipboard sync panel is its own low-priority card, ordered last in the dashboard (never inside the upload diagnostic). Above `900px` it spans both columns and splits into a latest-text pane and a compose pane; on narrow layouts it stacks and keeps only the text actions.
 
 ### Motion
 - **Focal moment:** the online status dot settles once (`signal-dot`, 520ms, exponential ease-out). It marks a real state change rather than looping for attention.
 - **Continuity:** Public pause enters with `pause-settle` (360ms); new file rows settle with `file-settle` (260ms).
-- **Feedback:** the drop zone lifts 2px and its plus mark grows on drag-over; toast enters with a short translate/fade; controls press 1px. Routine transitions stay at 150–240ms.
+- **Feedback:** drag-over raises the full-window `.drop-overlay` (veil 180ms, frame settle 360ms, target rise 360ms, plus pop 260ms) and drops it faster on release; toast enters with a short translate/fade; controls press 1px. Routine transitions stay at 150–240ms.
 - **Bounds:** only transform, opacity, color, and soft shadow move. No layout-driving animation, no bounce, no persistent attention loop.
 - **Reduced motion:** remove signal/pause/file/toast entrances and drag/press transforms; retain color and state changes so feedback remains legible.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep the sidebar at `208px` and the working content single-column; the task reads top to bottom.
+- **Do** keep the sidebar at `208px`; keep the working content one column below `900px` and the two-column (files | transfer) grid above it, so the task still reads top to bottom.
 - **Do** use Signal Blue only for primary actions, active navigation, links, and current-state emphasis.
 - **Do** use Cambria for the product name, page title, and a small number of emphasis headings; let Chinese fall through to Microsoft YaHei.
 - **Do** keep body and operational controls in the neutral sans stack; use Inter for English body and compact data.

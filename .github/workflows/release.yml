@@ -69,6 +69,15 @@ jobs:
       - name: Connection monitor tests
         run: npm run test:connection
 
+      - name: Upload offset tests
+        run: npm run test:offsets
+
+      - name: Hub smoke tests
+        run: npm run test:hub
+
+      - name: Firewall installer checks
+        run: npm run test:firewall
+
       - name: Build Tauri installer
         run: npm run tauri build
 

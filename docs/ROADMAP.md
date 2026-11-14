@@ -1,5 +1,7 @@
 # Filebridge-Lan 开发路线图
 
+> **已过期提示（2026-11-14）：** 本文件记录的是 2026-10-24 的路线图与进展快照，其中“未完成”的判断已经过时。1.6.0 已完成上传断点续传（服务端真实 offset + 分块续传）、SSE heartbeat 与断线可见、文字同步（`/api/clipboard`）、防火墙内置安装器等；正文保留作历史追溯，最新状态以 [CHANGELOG.md](../CHANGELOG.md) 与 [RELEASE-1.6.0-preview.3.md](./RELEASE-1.6.0-preview.3.md) 为准。
+
 > 配套文档：[现状审计](./AUDIT.md)
 > 代码基线：`d4943e1` · 2026-10-23
 > 估算口径：1 名熟悉 TypeScript / Rust 的开发者，含自测，不含应用商店审核与跨平台签名采购

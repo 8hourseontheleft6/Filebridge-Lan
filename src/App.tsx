@@ -67,6 +67,7 @@ export default function App() {
   const gateSignatureRef = useRef('');
   const relayLink = parseRelayHash();
   const relayOnly = isRelayHosted();
+  const desktopApp = isTauriHost();
   const [mode, setMode] = useState<TransferMode>(relayOnly ? 'relay' : 'lan');
   const activeMode: TransferMode = relayOnly ? 'relay' : mode;
 
@@ -250,14 +251,33 @@ export default function App() {
         </div>
 
         <nav className="side-nav" aria-label="主导航">
-          <button
-            type="button"
-            className={`side-nav-item${view === 'transfer' ? ' active' : ''}`}
-            onClick={() => setView('transfer')}
-          >
-            <span className="side-nav-icon"><Icon name="transfer" size={17} /></span>
-            <span className="side-nav-label">传输</span>
-          </button>
+          {!relayOnly && <span className="side-nav-group" aria-hidden>传输方式</span>}
+          {!relayOnly && (
+            <button
+              type="button"
+              className={`side-nav-item${view === 'transfer' && activeMode === 'lan' ? ' active' : ''}`}
+              aria-current={view === 'transfer' && activeMode === 'lan' ? 'page' : undefined}
+              onClick={() => { setMode('lan'); setView('transfer'); }}
+            >
+              <span className="side-nav-icon"><Icon name="transfer" size={17} /></span>
+              <span className="side-nav-label">局域网直传</span>
+            </button>
+          )}
+          {/* The relay is experimental and desktop-only; it is also hidden on narrow layouts. */}
+          {desktopApp && (
+            <button
+              type="button"
+              className={`side-nav-item side-nav-item-muted${view === 'transfer' && activeMode === 'relay' ? ' active' : ''}`}
+              aria-current={view === 'transfer' && activeMode === 'relay' ? 'page' : undefined}
+              onClick={() => { setMode('relay'); setView('transfer'); }}
+            >
+              <span className="side-nav-icon"><Icon name="arrow-up-right" size={17} /></span>
+              <span className="side-nav-label">跨网络中继</span>
+              <span className="side-nav-badge">实验</span>
+            </button>
+          )}
+
+          <span className="side-nav-group" aria-hidden>应用</span>
           <button type="button" className="side-nav-item" ref={helpTriggerRef} onClick={openHelp} aria-haspopup="dialog">
             <span className="side-nav-icon"><Icon name="help" size={17} /></span>
             <span className="side-nav-label">使用说明</span>
@@ -266,6 +286,7 @@ export default function App() {
             <button
               type="button"
               className={`side-nav-item${view === 'settings' ? ' active' : ''}`}
+              aria-current={view === 'settings' ? 'page' : undefined}
               onClick={() => setView('settings')}
             >
               <span className="side-nav-icon"><Icon name="settings" size={17} /></span>
@@ -276,7 +297,7 @@ export default function App() {
 
         <div className="sidebar-foot">
           <span className="sidebar-version">v1.6.0 Preview 3</span>
-          <span className="sidebar-mode">{activeMode === 'lan' ? '局域网直传' : '跨网络中继 · 实验'}</span>
+          {!desktopApp && <span className="sidebar-mode">浏览器访问</span>}
         </div>
       </aside>
 
@@ -300,25 +321,13 @@ export default function App() {
           </div>
         </header>
 
-        {view === 'transfer' && !relayOnly && (
-          <div className="mode-switch" role="group" aria-label="传输模式">
-            <button
-              type="button"
-              aria-pressed={activeMode === 'lan'}
-              className={`mode-tab${activeMode === 'lan' ? ' active' : ''}`}
-              onClick={() => setMode('lan')}
-            >
-              局域网直传
+        {view === 'transfer' && activeMode === 'relay' && (
+          <p className="mode-notice" role="note">
+            跨网络中继仍是实验性功能：需要自建 HTTPS Relay，未完成真实 WAN 验证。
+            <button type="button" className="mode-notice-action" onClick={() => setMode('lan')}>
+              返回局域网直传
             </button>
-            <button
-              type="button"
-              aria-pressed={activeMode === 'relay'}
-              className={`mode-tab${activeMode === 'relay' ? ' active' : ''}`}
-              onClick={() => { setMode('relay'); setView('transfer'); }}
-            >
-              跨网络中继 <span className="mode-tag">实验</span>
-            </button>
-          </div>
+          </p>
         )}
 
         <main className="main home-main">

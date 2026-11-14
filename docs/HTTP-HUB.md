@@ -16,7 +16,7 @@
 
 ## 2. UI 结构
 
-- 首页默认“局域网直传”，可切换到“跨网络中继（实验）”
+- 传输方式在侧栏“传输方式”分组里选：第一项“局域网直传”（主入口），第二项“跨网络中继”（实验性、次要样式、带“实验”徽标）；浏览器客户端不显示中继入口
 - 局域网模式以二维码和在线状态为主；配对码放在“手动连接 / 连接详情”折叠区
 - 二维码链接默认隐藏 code，可点击“显示 code / 隐藏 code”直接查看或隐藏
 - 状态：读取中、需要配对、连接中、在线、授权过期、服务不可用
@@ -70,9 +70,16 @@ Host/Origin 白名单：
 | POST | `/api/pair` | 配对码 | 换取 12h bearer token |
 | GET | `/api/files` | token | 文件元数据数组 |
 | POST | `/api/upload?name=<文件名>` | token | 请求体 = 文件字节；流式写盘 + SHA-256 |
+| POST | `/api/upload/chunk?name=&id=&offset=&total=` | token | 分块上传；请求体 = 单个分块字节 |
+| GET | `/api/upload/chunk/:id` | token | 查询服务端已确认 `offset`；已完成时返回文件元数据 |
+| DELETE | `/api/upload/chunk/:id` | token | 取消上传并清理临时分块；`204` |
 | GET | `/api/events?token=` | token | SSE 上传事件 |
 | GET | `/api/files/:id?token=` | token | 下载；支持 `Range` |
 | DELETE | `/api/files/:id` | token | 删除文件与元数据 |
+| GET | `/api/clipboard` | token | 读取文字同步快照 |
+| POST | `/api/clipboard` | token | 写入纯文本 `{ text, source }`；256 KiB 上限 |
+| DELETE | `/api/clipboard` | token | 清空文本，保留开启状态 |
+| POST | `/api/clipboard/enabled` | token + 仅 loopback | 切换文字同步开关；远端调用 `403` |
 | GET | `/` | 否 | `dist/` 静态页面（SPA fallback） |
 
 ### 上传
@@ -105,6 +112,45 @@ Authorization: Bearer <token>
 - Range：`206` + `Content-Range`
 - 非法 Range：`416`
 
+### 分块上传（断点续传）
+
+前端上传统一走分块：桌面 4 MB 一块，iOS Safari 2 MB 一块（并改用 Fetch + Blob 传输）。分块按 `id` 存在临时目录，只有服务端确认的 `offset` 才算已保存。
+
+```http
+POST /api/upload/chunk?name=test.bin&id=<uuid>&offset=0&total=104857600
+Content-Type: application/octet-stream
+Authorization: Bearer <token>
+
+<分块字节>
+```
+
+响应：
+
+```json
+{ "id": "...", "offset": 4194304, "complete": false, "file": null }
+```
+
+- 未收完：`200`，返回当前 `offset` 与 `complete: false`
+- 最后一个分块：`201`，服务端计算 SHA-256、把临时文件转成正式文件并写入元数据，返回 `complete: true` 与 `file`
+- `offset > 0` 但服务端已有字节数不匹配时返回 `409`（`{"offset": <服务端字节数>}`），先查 `/api/upload/chunk/:id` 拿到真实 offset 再继续
+- 单个分块超过 `total` 返回 `400`（Rust Hub 会把临时文件回滚到该分块写入前的长度）
+- `id` 必须是合法 UUID；取消用 `DELETE /api/upload/chunk/:id`（`204`，清理 `.part`）
+
+续传只用服务端确认的 offset，不用浏览器侧计数；失败重试 4 次后前端保留 `继续上传` 入口。
+
+### 文字同步
+
+已批准连接内的纯文本同步，默认开启、可随时关闭，手机不能自行开启。
+
+- 只有 `POST /api/clipboard/enabled` 需要 loopback，其余 `/api/clipboard*` 与文件 API 一样校验 bearer token
+- 关闭同步会清空内存中的文本；`GET` 在关闭时返回 `enabled: false`，其余字段为 `null`
+- `POST /api/clipboard` 的 body 为 `{ "text": "...", "source": "desktop" | "phone" }`，`source` 只接受这两个值
+- 单条上限 **256 KiB**（262144 字节，按 UTF-8 计）；超限 `413 clipboard_too_large`
+- 写入限流：全局 30 次/分钟、每 IP 10 次/分钟；超出 `429 clipboard_rate_limited`；未开启时 `409 clipboard_disabled`
+- 服务端按 SHA-256 去重，内容不变时不递增 `revision`，避免两端回显循环
+- 仅存内存，不落盘，不进入发现广播、URL、普通日志或上传诊断
+- Node Hub（`server/hub.mjs`）与 Rust Hub（`src-tauri/src/hub.rs`）是同一协议；细节与浏览器限制见 `CLIPBOARD.md`
+
 ### SSE
 
 `text/event-stream`，事件名 `upload`：
@@ -114,6 +160,8 @@ Authorization: Bearer <token>
 ```
 
 `status` 为 `started | progress | completed | failed`。
+
+另有每 5 秒一次的 `heartbeat` 事件（`data: {}`），用于让客户端区分「连接还在但没有传输」和「连接已断」；客户端 10 秒无任何事件即主动探测主机。
 
 ## 6. 安全
 
@@ -128,7 +176,7 @@ Authorization: Bearer <token>
 npm run test:hub
 ```
 
-覆盖：配对码、Host/Origin、配对 token、401、上传/SHA-256、下载、Range、空文件、文件名清洗、CORS、删除、轮换、配对限流。
+覆盖：配对码、Host/Origin、配对 token、401、上传/SHA-256、分块续传（真实 offset 校正）、下载、Range、空文件、文件名清洗、CORS、删除、轮换、配对限流。
 
 ## 8. 电脑互联（1.5.3）
 

@@ -1,5 +1,7 @@
 # Filebridge-Lan 现状审计
 
+> **已过期提示（2026-11-14）：** 本文件记录的是 2026-10-24 的状态与问题清单，其中多项已修复或已重构。1.6.0 已完成上传断点续传（服务端真实 offset + 分块续传）、SSE heartbeat 与断线可见、文字同步（`/api/clipboard`）、防火墙内置安装器等；正文保留作历史追溯，最新状态以 [CHANGELOG.md](../CHANGELOG.md) 与 [RELEASE-1.6.0-preview.3.md](./RELEASE-1.6.0-preview.3.md) 为准。
+
 > 历史审计：2026-10-23（项目名 FileBridge 时期）。部分问题已在 1.1.x/1.2.0 修复，本文件保留用于追溯。
 > 1.4.0 已移除 WebRTC/信令；本文中房间/信令相关内容仅作历史记录，现状见 `ARCHITECTURE.md` / `HTTP-HUB.md`。
 

@@ -70,7 +70,6 @@ body {
 .progress-card,
 .nearby-card,
 .guide-card,
-.mode-switch,
 .file-list {
   min-width: 0;
   max-width: 100%;
@@ -125,12 +124,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mode-tab,
-  .mode-tab.active {
-    transition: none;
-    animation: none;
-  }
-
   .back-to-top {
     transition: none;
   }
@@ -317,59 +310,10 @@ input {
   flex-shrink: 0;
 }
 
-.mode-switch {
-  display: flex;
-  width: 100%;
-  max-width: none;
-  margin: 0 0 20px;
-  padding: 4px;
-  gap: 4px;
-  background: #e9edf5;
-  border: 1px solid #e0e6ef;
-  border-radius: 11px;
-}
 
-.mode-tab {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 220ms ease, color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
-}
 
-.mode-tab.active {
-  background: #fff;
-  color: #1d2a3e;
-  box-shadow: 0 2px 7px rgba(35, 55, 90, 0.09);
-  animation: mode-tab-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
-}
 
-@keyframes mode-tab-in {
-  from {
-    opacity: 0.55;
-    transform: translateY(1px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
 
-.mode-tag {
-  margin-left: 4px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: #fff0d7;
-  color: #8a5a0a;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
 
 .home-main {
   display: block;
@@ -560,7 +504,6 @@ input {
 }
 
 .btn:focus-visible,
-.mode-tab:focus-visible,
 .side-nav-item:focus-visible,
 .input:focus-visible {
   outline: 2px solid #1f5fb8;
@@ -1390,15 +1333,7 @@ input {
     font-size: 0.72rem;
   }
 
-  .mode-switch {
-    width: 100%;
-    margin-bottom: 13px;
-  }
 
-  .mode-tab {
-    padding: 8px;
-    font-size: 0.74rem;
-  }
 
   .card {
     padding: 14px;
@@ -2395,7 +2330,6 @@ input {
   .topbar-actions .btn,
   .btn,
   .btn-small,
-  .mode-tab,
   .file-actions .btn,
   .file-actions .btn-icon,
   .input {
@@ -2412,10 +2346,6 @@ input {
     height: 44px;
   }
 
-  .mode-tab {
-    padding-top: 10px;
-    padding-bottom: 10px;
-  }
 }
 
 @media (max-width: 380px) {
@@ -2553,9 +2483,6 @@ input {
   .lan-paused-card,
   .toast,
   .loading-dot,
-  .mode-tab.active {
-    animation: none;
-  }
 
   .drop-zone,
   .drop-zone .drop-icon,
@@ -2971,7 +2898,7 @@ input {
   padding: 5px 8px;
   border-radius: 6px;
   background: #fff6e6;
-  color: var(--warning);
+  color: var(--warn);
   font-size: 0.74rem;
   font-weight: 600;
 }
@@ -3565,14 +3492,6 @@ input {
 .btn,
 .btn-icon-round,
 .side-nav-item,
-.mode-tab {
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 120ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 160ms ease;
-}
 
 .btn:active,
 .btn-icon-round:active,
@@ -3590,7 +3509,6 @@ input {
   .btn,
   .btn-icon-round,
   .side-nav-item,
-  .mode-tab,
   .dashboard-grid > .card {
     transition: none;
   }
@@ -4190,5 +4108,199 @@ input {
   .help-steps > li {
     grid-template-columns: 20px minmax(0, 1fr);
     gap: 8px;
+  }
+}
+
+/*
+ * Navigation: transfer methods are grouped, and the experimental relay reads as a
+ * secondary entry instead of competing with LAN transfer. Desktop only.
+ */
+.side-nav-group {
+  display: block;
+  padding: 12px 11px 5px;
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.side-nav-group:first-child {
+  padding-top: 2px;
+}
+
+.side-nav-item-muted {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.side-nav-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f6f8fc;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  font-size: 0.64rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.mode-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid #f0e2c4;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.mode-notice-action {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid #e8d3a8;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--warn);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-notice-action:hover {
+  background: #fffdf7;
+}
+
+/* Selection is a 44px hit area on touch, while the drawn control stays small. */
+.file-select-hit {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.file-select-hit .file-select {
+  margin: 0;
+}
+
+@media (max-width: 1000px) {
+  .side-nav-group {
+    display: none;
+  }
+
+  .side-nav-badge {
+    margin-left: 4px;
+  }
+}
+
+@media (max-width: 860px), (pointer: coarse) {
+  .file-select-hit {
+    width: 44px;
+    height: 44px;
+    margin: -12px -8px -12px -10px;
+  }
+
+  .file-select-hit .file-select {
+    width: 18px;
+    height: 18px;
+  }
+
+  .btn-icon-round {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .progress-row-end .btn-icon-round {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  .mode-notice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mode-notice-action {
+    min-height: 44px;
+  }
+}
+
+/* Clipboard: the enable/disable toggle moves next to the status; the rest are text actions. */
+.clipboard-head-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.clipboard-default-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.clipboard-default-note svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.clipboard-compose-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.clipboard-compose-head .field-label {
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .clipboard-head-status {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+/*
+ * Narrow layouts: the experimental relay is a desktop-only entry, and the brand
+ * name must stay on one line at 1000px and below.
+ */
+@media (max-width: 1000px) {
+  .side-nav-item-muted {
+    display: none;
+  }
+
+  .brand strong {
+    white-space: nowrap;
+  }
+
+  .brand {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .brand strong {
+    font-size: 0.88rem;
   }
 }

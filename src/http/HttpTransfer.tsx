@@ -2022,14 +2022,16 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
               {fileRows.map(({ key, item: file, leaving }) => (
                 <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
                   <div className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
-                    <input
-                      type="checkbox"
-                      className="file-select"
-                      checked={selectedIds.has(file.id)}
-                      onChange={() => toggleSelected(file.id)}
-                      disabled={online === false}
-                      aria-label={`选择 ${file.name}`}
-                    />
+                    <label className="file-select-hit">
+                      <input
+                        type="checkbox"
+                        className="file-select"
+                        checked={selectedIds.has(file.id)}
+                        onChange={() => toggleSelected(file.id)}
+                        disabled={online === false}
+                        aria-label={`选择 ${file.name}`}
+                      />
+                    </label>
                     <span className="file-icon file-ext" aria-hidden>{fileExtension(file.name)}</span>
                     <div className="file-main" title={file.name}>
                       <div className="file-name">{file.name}</div>
@@ -2115,7 +2117,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     <span className="progress-title">
                       {uploadIsBatch
                         ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个`
-                        : upload.status === 'done' ? '已上传' : '上传中'}
+                        : upload.status === 'done'
+                          ? '已上传'
+                          : upload.status === 'cancelled'
+                            ? '已取消'
+                            : upload.status === 'error'
+                              ? '上传失败'
+                              : '上传中'}
                     </span>
                     <span className="progress-row-end">
                       {!uploadIsBatch && <strong>{uploadPercent}%</strong>}

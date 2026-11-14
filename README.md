@@ -13,7 +13,7 @@
 - **手机免安装**：扫码打开网页即可上传/下载
 - **HTTP 直传**：流式上传、SHA-256、Range 下载、SSE 进度
 - **文字同步**：已批准连接内双向同步纯文本；默认开启，可随时关闭；手机不能自行开启，内容只存内存
-- **两种模式**：局域网直传默认选中；跨网络中继（实验）单独入口
+- **两种模式**：局域网直传默认选中；跨网络中继（实验性）：桌面版在侧栏以次要入口提供，浏览器客户端不显示入口
 - **电脑互联**：局域网自动发现附近电脑；主机确认后连接。另一台电脑也可直接用浏览器发起请求，无需安装
 - **网络类型门禁**：只有 Private/Domain 才启动 UDP 发现和局域网 Hub；公用网络弹窗提示修改，且关闭弹窗不能绕过门禁
 - **文件管理**：多选、全选、批量保存/下载、批量删除；文件列表限高并带滚动条
@@ -56,7 +56,10 @@ npm run tauri build
 产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.6.0-preview.3_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
-- 安装结束时如出现 **UAC** 提示，请允许一次：移除防火墙 Block 规则，并放行专用网络的 TCP 42080 + UDP 42081
+- Windows 防火墙规则已内置进安装包，不再额外启动可见的 PowerShell 窗口：
+  - 规则已存在且指向安装目录的 `filebridge-lan.exe` 时，重装/升级**完全静默**：不弹 PowerShell 窗口，也不触发 UAC
+  - 只有首次安装，或规则缺失/失效/指向旧路径时，才需要一次管理员授权；此时脚本以隐藏窗口运行，安装结束即清理临时文件
+  - 只放行 Domain/Private 的 TCP 42080 + UDP 42081，不修改 Public 规则
 - 安装包未签名，Windows SmartScreen 可能提示“未知发布者”
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42080 + UDP 42081）
 - SHA-256 见 GitHub Release 的资产 digest
@@ -102,7 +105,7 @@ BRIDGE_PUBLIC_URL=http://127.0.0.1:43000 npm run bridge
 
 ### 跨网络
 
-在首页切换到“跨网络中继（实验）”，配置 Relay 地址和（公网实例的）access token，上传后会生成完整接收链接/二维码。中继只保存密文，密钥、downloadToken 和文件 SHA-256 在 URL `#` 后，不发送到服务器。见 [docs/CROSS-NETWORK.md](docs/CROSS-NETWORK.md)。
+在侧栏“传输方式”里选“跨网络中继”（桌面版为次要入口，带“实验”徽标；手机浏览器不显示该入口），配置 Relay 地址和（公网实例的）access token，上传后会生成完整接收链接/二维码。中继只保存密文，密钥、downloadToken 和文件 SHA-256 在 URL `#` 后，不发送到服务器。见 [docs/CROSS-NETWORK.md](docs/CROSS-NETWORK.md)。
 
 > 跨网络中继是**实验性**功能；公网实例必须设置 `BRIDGE_ACCESS_TOKEN`，非 loopback 必须 HTTPS。当前未完成手机蜂窝网络 + 电脑另一网络的真实 WAN 验证，不能称为生产级公网中继。中继可见文件大小、时间、传输码、IP 等元数据。接收方必须打开完整链接，不能只发送 8 位传输码。
 
@@ -152,7 +155,7 @@ New-NetFirewallRule -DisplayName 'Filebridge-Lan Discovery' -Direction Inbound `
 - HTTP Hub 负责上传/下载、SHA-256、Range、SSE 进度
 - 配对码/token 是访问控制，不是加密；局域网 HTTP 仍是明文
 - Bridge Relay 只保存 AES-GCM 密文
-- 详细 API：[docs/HTTP-HUB.md](docs/HTTP-HUB.md) · 跨网络：[docs/CROSS-NETWORK.md](docs/CROSS-NETWORK.md)
+- 详细 API：[docs/HTTP-HUB.md](docs/HTTP-HUB.md) · 跨网络：[docs/CROSS-NETWORK.md](docs/CROSS-NETWORK.md) · 设计决策：[docs/DECISIONS.md](docs/DECISIONS.md)
 
 ## 项目结构
 
@@ -201,7 +204,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## 已知限制
 
-- 未实现上传断点续传
+- 断点续传只在当前页面会话内有效：刷新或关闭页面后，上次的分块 id 与 offset 不再保留，只能重新上传
 - 局域网 HTTP 无 TLS；不要用于不可信网络
 - 跨网络中继是实验性功能，未完成真实 WAN 验证；默认单文件 2GB、总存储 8GB、TTL 24h
 - 中继可见元数据；需要外部 HTTPS/反向代理；当前无正式账号体系
