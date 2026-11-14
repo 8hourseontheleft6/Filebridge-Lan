@@ -296,7 +296,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className="sidebar-version">v1.6.0 Preview 3</span>
+          <span className="sidebar-version">v1.6.0 Preview 4</span>
           {!desktopApp && <span className="sidebar-mode">浏览器访问</span>}
         </div>
       </aside>

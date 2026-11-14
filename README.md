@@ -46,14 +46,14 @@
 界面使用 Local Workbench 方向：固定侧栏、任务优先的卡片、Cambria 品牌与重点标题、Microsoft YaHei 中文和实际加载的 Inter 功能文本。上传诊断默认折叠；Safari 照片上传支持连续选择后统一上传。
 ## 直接安装（Windows）
 
-从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.6.0-preview.3_x64-setup.exe`，或本地构建：
+从 [GitHub Releases](https://github.com/8hourseontheleft6/Filebridge-Lan/releases) 下载 `Filebridge-Lan_1.6.0-preview.4_x64-setup.exe`，或本地构建：
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.6.0-preview.3_x64-setup.exe`
+产物：`src-tauri/target/release/bundle/nsis/Filebridge-Lan_1.6.0-preview.4_x64-setup.exe`
 
 - 默认按当前用户安装到 `%LOCALAPPDATA%\Filebridge-Lan`
 - Windows 防火墙规则已内置进安装包，不再额外启动可见的 PowerShell 窗口：
@@ -64,7 +64,7 @@ npm run tauri build
 - 首次运行如防火墙弹窗，请允许专用网络（TCP 42080 + UDP 42081）
 - SHA-256 见 GitHub Release 的资产 digest
 
-版本说明：[docs/RELEASE-1.6.0-preview.3.md](docs/RELEASE-1.6.0-preview.3.md)
+版本说明：[docs/RELEASE-1.6.0-preview.4.md](docs/RELEASE-1.6.0-preview.4.md)
 
 > 从旧版本升级：首次启动会尝试把 `Downloads\FileBridge` 数据目录迁移到 `Downloads\Filebridge-Lan`。
 
