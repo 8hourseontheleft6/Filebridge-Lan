@@ -6,6 +6,7 @@ import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo, type LanServiceS
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
+import { TransferMeter } from '../components/TransferMeter';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
@@ -2034,6 +2035,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             total={uploadTotal}
             history={uploadHistory}
             tone="blue"
+            idle={!upload}
           >
             {upload && (
               <div className="reveal">
@@ -2046,12 +2048,15 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                     </span>
                     <strong>{uploadPercent}%</strong>
                   </div>
-                  <div className="progress-bar" role="progressbar" aria-label={uploadIsBatch ? '上传总进度' : undefined} aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadPercent}>
-                    <div className="progress-fill" style={{ width: `${uploadPercent}%` }} />
-                  </div>
+                  <TransferMeter
+                    tone="blue"
+                    label={uploadIsBatch ? '上传总进度' : '上传进度'}
+                    percent={uploadPercent}
+                    speed={shownUploadSpeed}
+                    history={uploadHistory}
+                  />
                   <div className="progress-meta">
                     <span>{formatBytes(uploadLoadedBytes)} / {formatBytes(uploadTotalBytes)}</span>
-                    {upload.status === 'uploading' && <span>{formatBytes(uploadSpeed)}/s</span>}
                     {(upload.status === 'uploading' || upload.status === 'retrying') && <span>剩余 {formatDuration(uploadEta)}</span>}
                     {upload.status === 'done' && (
                       <span className="upload-done">
@@ -2091,6 +2096,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             total={downloadTotal}
             history={downloadHistory}
             tone="green"
+            idle={!(showLiveUpload && visibleLiveUpload) && !activeDownload}
           >
             {downloadBlocks.map(({ key, leaving }) => {
               const live = visibleLiveUpload ?? liveBlockRef.current;
@@ -2105,12 +2111,15 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                         <span className="progress-title">接收 {live.name}</span>
                         <strong>{livePct}%</strong>
                       </div>
-                      <div className="progress-bar" role="progressbar" aria-label="接收进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={livePct}>
-                        <div className="progress-fill" style={{ width: `${livePct}%` }} />
-                      </div>
+                      <TransferMeter
+                        tone="green"
+                        label="接收进度"
+                        percent={livePct}
+                        speed={shownUploadSpeed}
+                        history={uploadHistory}
+                      />
                       <div className="progress-meta">
                         <span>{formatBytes(live.loaded)} / {formatBytes(live.total)}</span>
-                        {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
                         {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
                       </div>
                     </div>
@@ -2121,12 +2130,15 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                         <span className="progress-title">保存 {save.name}</span>
                         <strong>{savePct}%</strong>
                       </div>
-                      <div className="progress-bar" role="progressbar" aria-label="保存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={savePct}>
-                        <div className="progress-fill" style={{ width: `${savePct}%` }} />
-                      </div>
+                      <TransferMeter
+                        tone="green"
+                        label="保存进度"
+                        percent={savePct}
+                        speed={shownDownloadSpeed}
+                        history={downloadHistory}
+                      />
                       <div className="progress-meta">
                         <span>{formatBytes(save.loaded)} / {formatBytes(save.total)}</span>
-                        {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
                         {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
                         <button
                           type="button"
@@ -2171,11 +2183,13 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 actions={(
                   <button
                     type="button"
-                    className="btn btn-small btn-ghost"
+                    className="btn btn-ghost btn-icon-round"
                     aria-pressed={showCode}
+                    aria-label={showCode ? '隐藏 code' : '显示 code'}
+                    title={showCode ? '隐藏 code' : '显示 code'}
                     onClick={() => setShowCode((value) => !value)}
                   >
-                    {showCode ? '隐藏 code' : '显示 code'}
+                    <Icon name={showCode ? 'eye-off' : 'eye'} size={15} />
                   </button>
                 )}
               />

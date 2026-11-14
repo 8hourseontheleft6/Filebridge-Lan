@@ -11,6 +11,8 @@ interface IconProps {
     | 'upload'
     | 'download'
     | 'chevron-down'
+    | 'eye'
+    | 'eye-off'
     | 'alert'
     | 'check'
     | 'device'
@@ -111,6 +113,21 @@ export function Icon({ name, size = 18, className }: IconProps) {
       return (
         <svg {...common}>
           <path d="m6 9 6 6 6-6" />
+        </svg>
+      );
+    case 'eye':
+      return (
+        <svg {...common}>
+          <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+          <circle cx="12" cy="12" r="3.2" />
+        </svg>
+      );
+    case 'eye-off':
+      return (
+        <svg {...common}>
+          <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+          <circle cx="12" cy="12" r="3.2" />
+          <path d="m4 4 16 16" />
         </svg>
       );
     case 'alert':

@@ -40,7 +40,7 @@ export function JoinQr({
         >{shown}</code>
         <div className="qr-actions">
           {actions}
-          <CopyButton text={url} label="复制链接" />
+          <CopyButton text={url} label="复制链接" variant="icon" />
         </div>
       </div>
     </div>
