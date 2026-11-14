@@ -238,6 +238,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const [upload, setUpload] = useState<UploadState | null>(null);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [dropLeaving, setDropLeaving] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -1417,26 +1418,49 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   // Files can be dropped anywhere in the window; the list itself is not a drop target.
   useEffect(() => {
     let depth = 0;
+    let overlayState: 'hidden' | 'shown' | 'leaving' = 'hidden';
+    let overlayTimer: number | null = null;
+    const showOverlay = () => {
+      if (overlayTimer !== null) {
+        window.clearTimeout(overlayTimer);
+        overlayTimer = null;
+      }
+      if (overlayState === 'shown') return;
+      overlayState = 'shown';
+      setDragging(true);
+      setDropLeaving(false);
+    };
+    const hideOverlay = () => {
+      if (overlayState !== 'shown') return;
+      overlayState = 'leaving';
+      setDropLeaving(true);
+      overlayTimer = window.setTimeout(() => {
+        overlayState = 'hidden';
+        setDragging(false);
+        setDropLeaving(false);
+        overlayTimer = null;
+      }, 160);
+    };
     const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types || []).includes('Files');
     const onEnter = (event: DragEvent) => {
       if (!hasFiles(event)) return;
       event.preventDefault();
       depth += 1;
-      if (online !== false) setDragging(true);
+      if (online !== false) showOverlay();
     };
     const onOver = (event: DragEvent) => {
       if (!hasFiles(event)) return;
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = online === false ? 'none' : 'copy';
-      if (online !== false) setDragging(true);
+      if (online !== false) showOverlay();
     };
     const onLeave = () => {
       depth = Math.max(0, depth - 1);
-      if (depth === 0) setDragging(false);
+      if (depth === 0) hideOverlay();
     };
     const onDrop = (event: DragEvent) => {
       depth = 0;
-      setDragging(false);
+      hideOverlay();
       if (!hasFiles(event)) return;
       event.preventDefault();
       if (online === false) return;
@@ -1445,7 +1469,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     };
     const onDragEnd = () => {
       depth = 0;
-      setDragging(false);
+      hideOverlay();
     };
     window.addEventListener('dragenter', onEnter);
     window.addEventListener('dragover', onOver);
@@ -1453,6 +1477,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     window.addEventListener('drop', onDrop);
     window.addEventListener('dragend', onDragEnd);
     return () => {
+      if (overlayTimer !== null) window.clearTimeout(overlayTimer);
       window.removeEventListener('dragenter', onEnter);
       window.removeEventListener('dragover', onOver);
       window.removeEventListener('dragleave', onLeave);
@@ -2257,7 +2282,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
 
       {dragging && (
-        <div className="drop-overlay" role="status">
+        <div className={`drop-overlay${dropLeaving ? ' is-leaving' : ''}`} role="status">
           <div className="drop-overlay-card">
             <span className="drop-overlay-icon" aria-hidden><Icon name="plus" size={20} /></span>
             <strong>松开即可上传</strong>
