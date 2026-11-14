@@ -1600,9 +1600,20 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     ],
     (key) => key,
   );
-  // The upload readout behaves like the save one: it leaves once the upload is done.
+  // The upload readout leaves once the upload is done, but stays for a moment so
+  // the finished state is readable instead of vanishing under the cursor.
+  const [uploadHolding, setUploadHolding] = useState(false);
+  useEffect(() => {
+    if (upload?.status !== 'done') {
+      setUploadHolding(false);
+      return;
+    }
+    setUploadHolding(true);
+    const timer = window.setTimeout(() => setUploadHolding(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [upload?.status]);
   const uploadBlocks = usePresenceList(
-    upload && upload.status !== 'done' ? ['upload'] : [],
+    upload && (upload.status !== 'done' || uploadHolding) ? ['upload'] : [],
     (key) => key,
   );
   const hasActiveTransfer = Boolean(uploadBlocks.length > 0 || visibleLiveUpload || activeDownload);
@@ -2102,7 +2113,9 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                 <div className="progress-block">
                   <div className="progress-row">
                     <span className="progress-title">
-                      {uploadIsBatch ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个` : '上传中'}
+                      {uploadIsBatch
+                        ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个`
+                        : upload.status === 'done' ? '已上传' : '上传中'}
                     </span>
                     <span className="progress-row-end">
                       {!uploadIsBatch && <strong>{uploadPercent}%</strong>}
