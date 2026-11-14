@@ -253,7 +253,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const [codeError, setCodeError] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
   const [showCode, setShowCode] = useState(false);
-  const [pairingOpen, setPairingOpen] = useState(() => !readToken());
+  const [pairingOpen, setPairingOpen] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [refreshSpinning, setRefreshSpinning] = useState(false);
   const refreshSpinTimerRef = useRef<number | null>(null);
@@ -1600,12 +1600,14 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         ? 'chip-bad'
         : 'chip-warn';
 
+  const pairingExpanded = token ? pairingOpen : true;
+
   const pairingDetails = (
-    <div className={`pairing-details${pairingOpen ? ' is-open' : ''}`}>
+    <div className={`pairing-details${pairingExpanded ? ' is-open' : ''}`}>
       <button
         type="button"
         className="pairing-summary"
-        aria-expanded={pairingOpen}
+        aria-expanded={pairingExpanded}
         aria-controls="pairing-body"
         onClick={() => setPairingOpen((value) => !value)}
       >
@@ -1614,17 +1616,35 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       </button>
       <div
         id="pairing-body"
-        className={`pairing-body disclosure${pairingOpen ? ' is-open' : ''}`}
-        inert={pairingOpen ? undefined : true}
+        className={`pairing-body disclosure${pairingExpanded ? ' is-open' : ''}`}
+        inert={pairingExpanded ? undefined : true}
       >
         <div className="disclosure-inner">
-          {sessionCode && (
-            <div className="pairing-code-row">
-              <span>配对码</span>
-              <strong>{sessionCode}</strong>
-              <CopyButton text={sessionCode} label="复制配对码" />
+          <div className="pairing-code-row">
+            {sessionCode && (
+              <>
+                <span>配对码</span>
+                <strong>{sessionCode}</strong>
+              </>
+            )}
+            <div className="pairing-code-actions">
+              {sessionCode && (
+                <CopyButton text={sessionCode} label="复制配对码" variant="icon" />
+              )}
+              {canRotate && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon-round"
+                  onClick={() => void rotatePairing()}
+                  disabled={rotating}
+                  aria-label="重新生成配对码"
+                  title="重新生成配对码"
+                >
+                  <Icon name="refresh" size={14} className={rotating ? 'is-spinning' : undefined} />
+                </button>
+              )}
             </div>
-          )}
+          </div>
           <label className="field-label" htmlFor="http-session-code">手动输入配对码</label>
           <div className="path-row">
             <input
@@ -1648,19 +1668,9 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
               连接
             </button>
           </div>
-          {canRotate && (
-            <button
-              type="button"
-              className="btn btn-small"
-              onClick={() => void rotatePairing()}
-              disabled={rotating}
-            >
-              {rotating ? '生成中…' : '重新生成配对码'}
-            </button>
-          )}
           {codeError && <p className="text-error" role="alert">{codeError}</p>}
           <p className="hint">
-            扫码成功时无需手动操作；配对码只用于换取 12 小时访问授权。
+            扫码即可连接；配对码仅用于授权。
           </p>
         </div>
       </div>

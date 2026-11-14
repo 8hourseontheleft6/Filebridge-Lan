@@ -31,11 +31,13 @@ async function copyText(text: string): Promise<boolean> {
 export function CopyButton({
   text,
   label = '复制',
-  className = 'btn btn-small btn-ghost',
+  className,
+  variant = 'label',
 }: {
   text: string;
   label?: string;
   className?: string;
+  variant?: 'label' | 'icon';
 }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -45,23 +47,41 @@ export function CopyButton({
     if (timerRef.current) window.clearTimeout(timerRef.current);
   }, []);
 
+  const handleClick = async () => {
+    setFailed(false);
+    if (!(await copyText(text))) {
+      setFailed(true);
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setFailed(false), 2000);
+      return;
+    }
+    setCopied(true);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  const title = failed ? '复制失败，请手动选择链接' : copied ? '已复制' : `复制：${text}`;
+
+  if (variant === 'icon') {
+    return (
+      <button
+        type="button"
+        className={className ?? 'btn btn-ghost btn-icon-round'}
+        onClick={handleClick}
+        aria-label={label}
+        title={title}
+      >
+        <Icon name={failed ? 'alert' : copied ? 'check' : 'copy'} size={14} />
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
-      className={className}
-      onClick={async () => {
-        setFailed(false);
-        if (!(await copyText(text))) {
-          setFailed(true);
-          if (timerRef.current) window.clearTimeout(timerRef.current);
-          timerRef.current = window.setTimeout(() => setFailed(false), 2000);
-          return;
-        }
-        setCopied(true);
-        if (timerRef.current) window.clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(() => setCopied(false), 1600);
-      }}
-      title={failed ? '复制失败，请手动选择链接' : copied ? '已复制' : `复制：${text}`}
+      className={className ?? 'btn btn-small btn-ghost'}
+      onClick={handleClick}
+      title={title}
     >
       {failed ? '复制失败' : copied ? <><Icon name="check" size={13} /> 已复制</> : label}
     </button>

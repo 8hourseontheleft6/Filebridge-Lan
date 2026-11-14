@@ -809,8 +809,18 @@ input {
 }
 
 .pairing-code-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   color: var(--text-dim);
   font-size: 0.75rem;
+}
+
+.pairing-code-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .pairing-code-row strong {
