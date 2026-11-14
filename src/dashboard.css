@@ -3712,23 +3712,30 @@ input {
   opacity: 0.35;
 }
 
-/* A new row/block owns a grid track so the card's height can transition. */
+/* A new row/block owns an auto height so the card can grow and shrink smoothly. */
 .reveal {
-  display: grid;
-  grid-template-rows: 1fr;
-  min-height: 0;
-  transition: grid-template-rows 340ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.reveal > * {
+  height: auto;
   min-height: 0;
   overflow: clip;
+  opacity: 1;
+  interpolate-size: allow-keywords;
+  transition:
+    height 340ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 240ms ease;
 }
 
 @starting-style {
   .reveal {
-    grid-template-rows: 0fr;
+    height: 0;
+    opacity: 0;
   }
+}
+
+/* Removed rows stay for one transition, then unmount: the card shrinks with a process. */
+.reveal.is-leaving {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* The list wrapper keeps the reveal clean: only the gap changes. */
@@ -3786,13 +3793,14 @@ input {
 }
 
 .disclosure {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 340ms cubic-bezier(0.4, 0, 0.2, 1);
+  height: 0;
+  overflow: clip;
+  interpolate-size: allow-keywords;
+  transition: height 340ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .disclosure.is-open {
-  grid-template-rows: 1fr;
+  height: auto;
 }
 
 .disclosure > .disclosure-inner {

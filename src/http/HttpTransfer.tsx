@@ -9,6 +9,7 @@ import { RateCard } from '../components/RateCard';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
+import { usePresenceList } from '../lib/usePresence';
 import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers, type NearbyPeer } from './NearbyComputers';
@@ -42,6 +43,11 @@ function readToken(): string {
   } catch {
     return '';
   }
+}
+
+function percentOf(loaded: number, total: number): number {
+  if (total > 0) return Math.min(100, Math.round((loaded / total) * 100));
+  return loaded > 0 ? 100 : 0;
 }
 
 async function pairSession(code: string): Promise<{ token: string; expiresAt: number }> {
@@ -1506,6 +1512,24 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   uploadSpeedRef.current = effectiveUploadSpeed;
   downloadSpeedRef.current = effectiveDownloadSpeed;
 
+  // Rows and blocks keep their slot for one exit transition instead of snapping.
+  const fileRows = usePresenceList(files, (file) => file.id);
+  const liveBlockRef = useRef<LiveUpload | null>(null);
+  const saveBlockRef = useRef<ActiveDownload | null>(null);
+  useEffect(() => {
+    if (visibleLiveUpload) liveBlockRef.current = visibleLiveUpload;
+  }, [visibleLiveUpload]);
+  useEffect(() => {
+    if (activeDownload) saveBlockRef.current = activeDownload;
+  }, [activeDownload]);
+  const downloadBlocks = usePresenceList(
+    [
+      ...(showLiveUpload && visibleLiveUpload ? ['receive'] : []),
+      ...(activeDownload ? ['save'] : []),
+    ],
+    (key) => key,
+  );
+
   useEffect(() => {
     if (!upload) return;
     if (uploadMeterRef.current.key !== upload.startedAt) {
@@ -1912,8 +1936,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           <div className={`file-list-wrap${files.length > 0 ? ' has-files' : ''}`}>
             <div className="file-list">
-              {files.map((file) => (
-                <div className="reveal" key={file.id}>
+              {fileRows.map(({ key, item: file, leaving }) => (
+                <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
                   <div className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
                     <input
                       type="checkbox"
@@ -2058,51 +2082,56 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
             history={downloadHistory}
             tone="green"
           >
-            {showLiveUpload && visibleLiveUpload && (
-              <div className="reveal">
-                <div className="progress-block">
-                  <div className="progress-row">
-                    <span className="progress-title">接收 {visibleLiveUpload.name}</span>
-                    <strong>{livePercent}%</strong>
-                  </div>
-                  <div className="progress-bar" role="progressbar" aria-label="接收进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={livePercent}>
-                    <div className="progress-fill" style={{ width: `${livePercent}%` }} />
-                  </div>
-                  <div className="progress-meta">
-                    <span>{formatBytes(visibleLiveUpload.loaded)} / {formatBytes(visibleLiveUpload.total)}</span>
-                    {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
-                    {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
-                  </div>
+            {downloadBlocks.map(({ key, leaving }) => {
+              const live = visibleLiveUpload ?? liveBlockRef.current;
+              const save = activeDownload ?? saveBlockRef.current;
+              const livePct = visibleLiveUpload ? livePercent : live ? percentOf(live.loaded, live.total) : 0;
+              const savePct = activeDownload ? downloadPercent : save ? percentOf(save.loaded, save.total) : 0;
+              return (
+                <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
+                  {key === 'receive' && live && (
+                    <div className="progress-block">
+                      <div className="progress-row">
+                        <span className="progress-title">接收 {live.name}</span>
+                        <strong>{livePct}%</strong>
+                      </div>
+                      <div className="progress-bar" role="progressbar" aria-label="接收进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={livePct}>
+                        <div className="progress-fill" style={{ width: `${livePct}%` }} />
+                      </div>
+                      <div className="progress-meta">
+                        <span>{formatBytes(live.loaded)} / {formatBytes(live.total)}</span>
+                        {liveSpeed > 0 && <span>{formatBytes(liveSpeed)}/s</span>}
+                        {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
+                      </div>
+                    </div>
+                  )}
+                  {key === 'save' && save && (
+                    <div className="progress-block">
+                      <div className="progress-row">
+                        <span className="progress-title">保存 {save.name}</span>
+                        <strong>{savePct}%</strong>
+                      </div>
+                      <div className="progress-bar" role="progressbar" aria-label="保存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={savePct}>
+                        <div className="progress-fill" style={{ width: `${savePct}%` }} />
+                      </div>
+                      <div className="progress-meta">
+                        <span>{formatBytes(save.loaded)} / {formatBytes(save.total)}</span>
+                        {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
+                        {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
+                        <button
+                          type="button"
+                          className="btn btn-small btn-ghost"
+                          onClick={cancelDownload}
+                          disabled={save.status === 'cancelling'}
+                        >
+                          {save.status === 'cancelling' ? '取消中…' : '取消'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-
-            {activeDownload && (
-              <div className="reveal">
-                <div className="progress-block">
-                  <div className="progress-row">
-                    <span className="progress-title">保存 {activeDownload.name}</span>
-                    <strong>{downloadPercent}%</strong>
-                  </div>
-                  <div className="progress-bar" role="progressbar" aria-label="保存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadPercent}>
-                    <div className="progress-fill" style={{ width: `${downloadPercent}%` }} />
-                  </div>
-                  <div className="progress-meta">
-                    <span>{formatBytes(activeDownload.loaded)} / {formatBytes(activeDownload.total)}</span>
-                    {downloadSpeed > 0 && <span>{formatBytes(downloadSpeed)}/s</span>}
-                    {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
-                    <button
-                      type="button"
-                      className="btn btn-small btn-ghost"
-                      onClick={cancelDownload}
-                      disabled={activeDownload.status === 'cancelling'}
-                    >
-                      {activeDownload.status === 'cancelling' ? '取消中…' : '取消'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+              );
+            })}
           </RateCard>
         </div>
 

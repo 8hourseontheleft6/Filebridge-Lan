@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauriHost } from '../lib/hub';
+import { usePresenceList } from '../lib/usePresence';
 import { Icon } from '../components/Icon';
 
 export interface NearbyPeer {
@@ -77,6 +78,8 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
     return () => window.clearInterval(timer);
   }, [desktop, refresh]);
 
+  const peerRows = usePresenceList(peers, (peer) => peer.id);
+
   if (!desktop) return null;
 
   const serviceError = discovery?.status === 'error'
@@ -117,14 +120,14 @@ export function NearbyComputers({ onConnect, activePeerId = null, activeState = 
           <span>{serviceError}</span>
           <span>请用局域网 IP、扫码或手动配对继续。</span>
         </div>
-      ) : peers.length === 0 ? (
+      ) : peers.length === 0 && peerRows.length === 0 ? (
         <div className="nearby-empty">
           <span>暂未发现其他电脑 · 确认同一子网且为专用网络</span>
         </div>
       ) : (
         <div className="nearby-list">
-          {peers.map((peer) => (
-            <div className="reveal" key={peer.id}>
+          {peerRows.map(({ key, item: peer, leaving }) => (
+            <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
               <div className="nearby-row">
                 <span className="nearby-icon" aria-hidden><Icon name="device" size={16} /></span>
                 <div className="nearby-main">
