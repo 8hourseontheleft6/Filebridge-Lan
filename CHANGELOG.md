@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.1 - 2026-11-15
+
+1.6.1 稳定版，基于通过验收的 1.6.1-preview.1 代码，仅做版本与发布文档变更。
+
+- 修复二维码/分享链接错误选择 VirtualBox Host-Only 等虚拟网卡地址的问题（1.6.0 因此废弃）
+- Rust Hub 只公布真实可用局域网接口：驱动描述 + 已知虚拟厂商 MAC 前缀识别，VirtualBox / TAP / Hyper-V / VMware / VPN / WSL / Docker / Wi-Fi Direct 不再出现
+- 地址优先级：默认路由网卡优先（`GetBestInterface`）→ Windows `InterfaceMetric` → 地址；物理 Wi-Fi/Ethernet 切换、断网仅有局域网、只有虚拟网卡等情况均有覆盖
+- Node Hub 新增 `server/lan-ips.mjs`，与 Rust 使用同一策略与同一共享夹具 `scripts/fixtures/lan-ips.json`
+- 发现服务的定向广播不再向 VirtualBox Host-Only 等虚拟子网发送
+- 前端 `pickPhoneHost/listPhoneHosts` 兜底，多地址时显示「其它可用地址」
+- 保留 1.6.0 已完成的文字同步、Safari 分块续传、SHA-256/.part、断线提示、电脑互联、Public 门禁、安装器防火墙与图标
+- 实机验证：VirtualBox Host-Only「以太网 4」保持 Up 时 `/api/info.ips` 只返回 WLAN `192.168.2.53`，二维码与手机连接正常
+- Windows 10 21H2+ / Windows 11 x64；安装包未签名；跨网络中继仍为实验性；局域网连接为 HTTP 明文
+
 ## 1.6.1-preview.1 - Preview
 
 修复 1.6.0 的发布阻断缺陷：局域网地址与二维码指向 VirtualBox Host-Only。
