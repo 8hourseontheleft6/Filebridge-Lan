@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.1-preview.1 - Preview
+
+修复 1.6.0 的发布阻断缺陷：局域网地址与二维码指向 VirtualBox Host-Only。
+
+- `/api/info.ips` 改用真实局域网接口（驱动描述 + 已知虚拟厂商 MAC 前缀）生成，VirtualBox Host-Only / TAP / Hyper-V / VMware / VPN / WSL / Docker / Wi-Fi Direct 不再出现
+- 地址排序：默认路由网卡优先（`GetBestInterface`），其次 Windows `InterfaceMetric`，最后按地址；不再按 `192.168/10/172` 前缀排序
+- Rust Hub 不再使用未过滤的 `list_afinet_netifas()`；`get_info()` 直接返回已排序候选
+- Node Hub 新增 `server/lan-ips.mjs`，与 Rust 使用同一策略与同一份共享夹具
+- 前端新增 `pickPhoneHost()` / `listPhoneHosts()` 兜底：跳过回环/链路本地/多播，VirtualBox 默认网段 `192.168.56.0/24` 延后；多地址时在二维码下方列出「其它可用地址」
+- 发现服务的定向广播只基于真实局域网接口，不再向 `192.168.56.0/24` 广播
+- 新增 `npm run test:lan`（Node + 前端 14 项），Rust 新增 8 项地址选择/广播测试
+- `v1.6.0` Draft 已标记「已废弃，请勿发布」，tag 与资产保留不动
+
 ## 1.6.0 - 2026-11-15
 
 首个 1.6.0 稳定版，基于通过验收的 1.6.0-preview.5 代码，仅做版本与发布文档变更。
