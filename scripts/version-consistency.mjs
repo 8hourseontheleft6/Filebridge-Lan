@@ -19,8 +19,9 @@ assert.equal(cargoVersion, pkg.version, 'Cargo.toml version');
 assert.equal(lockVersion, pkg.version, 'Cargo.lock package version');
 
 // The UI prints the version by hand; keep it in step with package.json.
+// Preview builds show "1.6.0 Preview 5", the stable build shows "1.6.0".
 const label = pkg.version.replace(/^(\d+\.\d+\.\d+)-preview\.(\d+)$/, '$1 Preview $2');
-assert.match(label, /^\d+\.\d+\.\d+ Preview \d+$/, 'unexpected version shape for the UI label');
+assert.match(label, /^\d+\.\d+\.\d+( Preview \d+)?$/, 'unexpected version shape for the UI label');
 for (const rel of ['src/App.tsx', 'src/components/SettingsPanel.tsx']) {
   const source = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   assert.ok(source.includes(label), `${rel} must show ${label}`);
