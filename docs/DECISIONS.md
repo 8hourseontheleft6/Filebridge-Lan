@@ -66,6 +66,18 @@
 
 ## 7. 版本与发布节奏
 
-- 本轮改动累积到 `1.6.0-preview.4`，以 Draft Release 交付给用户验收，不直接发布稳定版；
+- `1.6.0-preview.4` 与 `1.6.0-preview.5` 都以 Draft Release 交付给用户验收，不直接发布稳定版；
 - 稳定版使用独立的 `v1.6.0`，不复用 Preview 资产；
-- `v1.5.6` 稳定版与 `v1.6.0-preview.3` 已发布资产均不改动。
+- `v1.5.6` 稳定版与已发布的 Preview 资产均不改动。
+
+## 8. 局域网只绑定真实物理网卡
+
+**背景**：Windows 把 VirtualBox Host-Only 适配器命名为「以太网 2」，且 NetworkListManager 不返回它的网络类型；旧逻辑只按显示名识别虚拟网卡，导致真实 Private WLAN 被误判为「含非专用网络」而阻断整个服务。
+
+**决策**：
+
+- 网络判定只考虑真实物理网卡：识别依据为驱动描述（`GetAdaptersAddresses::Description`）+ 已知虚拟厂商 MAC 前缀，不以本地化显示名为准；
+- VirtualBox / Hyper-V / VMware / TAP / WireGuard / Tailscale / ZeroTier / WSL / Docker / Wi-Fi Direct 等一律不参与判定；
+- 不再提供「找不到物理网卡就回退到全部 private 接口」的回退；只有虚拟网卡或没有已连接真实网络时保持阻断；
+- 真实物理网卡为 Public 仍阻断；虚拟网卡的 Public 不影响真实 Private 网络；
+- 阻断原因需在界面上区分「网络为公用」与「没有可用的真实网络」。

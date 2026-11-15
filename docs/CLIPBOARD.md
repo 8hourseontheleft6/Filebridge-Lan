@@ -1,6 +1,6 @@
 # Text Clipboard Sync Protocol
 
-Status: 1.6.0-preview.4. Node Hub and Rust Hub implement the same contract.
+Status: 1.6.0-preview.5. Node Hub and Rust Hub implement the same contract.
 
 ## Access
 

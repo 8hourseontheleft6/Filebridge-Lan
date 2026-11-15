@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.0-preview.5 - Preview
+
+- 修复虚拟网卡误判：Windows 把 VirtualBox Host-Only 命名为「以太网 2」且不给它网络类型时，不再被当成局域网承载网络（现场导致真实 Private WLAN 被错误阻断）
+- 网卡识别改为同时检查驱动描述（`GetAdaptersAddresses::Description`）与已知虚拟厂商 MAC 前缀，不再依赖本地化显示名
+- 覆盖 VirtualBox、Hyper-V/vEthernet、VMware、TAP/OpenVPN、WireGuard、Tailscale、ZeroTier、WSL、Docker、Wi-Fi Direct 等虚拟适配器
+- 移除「找不到物理网卡就回退到全部 private 接口」的逻辑：只有虚拟网卡或没有真实网络时保持阻断，并给出「没有可用的真实网络」说明
+- 真实物理 Wi-Fi 为 Public 时仍阻断；虚拟 Public 不会阻断真实 Private WLAN
+- 新增 7 项网络判定回归测试与 1 项网关状态测试，另加 `#[ignore]` 现场诊断测试
+- 不改动 v1.5.6 稳定版与已发布的 Preview 资产
+
 ## 1.6.0-preview.4 - Preview
 
 - 文字同步安全性：`source` 改由服务端按连接推导（loopback → 电脑，其余 → 手机），客户端无法伪造 desktop 来抑制主机写剪贴板；两端同步补断言
