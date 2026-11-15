@@ -1,0 +1,67 @@
+{
+  "comment": "Shared LAN address selection fixture. Rust (src-tauri/src/network_profile.rs) and Node (server/hub.mjs) must agree on 'expected'.",
+  "defaultRouteInterfaceIndex": 8,
+  "adapters": [
+    {
+      "name": "以太网 4",
+      "description": "VirtualBox Host-Only Ethernet Adapter",
+      "ip": "192.168.56.1",
+      "prefixLen": 24,
+      "mac": "0a:00:27:00:00:01",
+      "up": true,
+      "ifType": 6,
+      "ifIndex": 21,
+      "metric": 35,
+      "isDefaultRoute": false
+    },
+    {
+      "name": "WLAN",
+      "description": "MediaTek Wi-Fi 6E MT7922 (RZ616) 160MHz PCIe Adapter",
+      "ip": "192.168.2.53",
+      "prefixLen": 24,
+      "mac": "78:ab:9c:ff:2e:67",
+      "up": true,
+      "ifType": 71,
+      "ifIndex": 8,
+      "metric": 30,
+      "isDefaultRoute": true
+    },
+    {
+      "name": "以太网 2",
+      "description": "VirtualBox Host-Only Ethernet Adapter #2",
+      "ip": "192.168.56.2",
+      "prefixLen": 24,
+      "mac": "0a:00:27:00:00:02",
+      "up": true,
+      "ifType": 6,
+      "ifIndex": 22,
+      "metric": 40,
+      "isDefaultRoute": false
+    },
+    {
+      "name": "以太网",
+      "description": "Realtek PCIe GbE Family Controller",
+      "ip": "169.254.10.20",
+      "prefixLen": 16,
+      "mac": "10:b6:76:85:ce:2d",
+      "up": true,
+      "ifType": 6,
+      "ifIndex": 15,
+      "metric": 25,
+      "isDefaultRoute": false
+    },
+    {
+      "name": "以太网 3",
+      "description": "TAP-Windows Adapter V9",
+      "ip": "10.8.0.6",
+      "prefixLen": 24,
+      "mac": "00:ff:e3:1d:5d:a8",
+      "up": true,
+      "ifType": 6,
+      "ifIndex": 18,
+      "metric": 20,
+      "isDefaultRoute": false
+    }
+  ],
+  "expected": ["192.168.2.53"]
+}

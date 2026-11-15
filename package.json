@@ -1,6 +1,6 @@
 {
   "name": "filebridge-lan",
-  "version": "1.6.0",
+  "version": "1.6.1-preview.1",
   "private": true,
   "license": "MIT",
   "author": "Filebridge-Lan contributors",
@@ -22,7 +22,8 @@
     "test:firewall": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-firewall-installer.ps1",
     "test:version": "node scripts/version-consistency.mjs",
     "test:connection": "node --experimental-strip-types --test src/lib/connectionMonitor.test.mjs",
-    "test:clipboard": "node --experimental-strip-types --test src/lib/clipboard.test.mjs"
+    "test:clipboard": "node --experimental-strip-types --test src/lib/clipboard.test.mjs",
+    "test:lan": "node --experimental-strip-types --test src/lib/lanAddress.test.mjs && node --test scripts/lan-ips.test.mjs"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",

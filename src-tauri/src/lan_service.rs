@@ -405,6 +405,8 @@ mod tests {
             mac: None,
             if_type: 6,
             oper_status: 1,
+            if_index: 0,
+            metric: 0,
         };
         let moved = crate::discovery::Ipv4Interface {
             ip: Ipv4Addr::new(10, 0, 5, 20),
@@ -415,6 +417,8 @@ mod tests {
             mac: None,
             if_type: 6,
             oper_status: 1,
+            if_index: 0,
+            metric: 0,
         };
         let a = crate::discovery::targets_from_interfaces(&[first], 42081);
         let b = crate::discovery::targets_from_interfaces(&[moved], 42081);

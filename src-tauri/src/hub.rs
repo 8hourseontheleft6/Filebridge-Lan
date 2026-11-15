@@ -358,16 +358,10 @@ pub async fn new(port: u16, data_dir: PathBuf, dist_dir: PathBuf) -> std::io::Re
     hub_log!("[hub] 已加载 {} 个文件索引", files.len());
 
     let (events, _) = broadcast::channel(128);
-    let local_ips = local_ip_address::list_afinet_netifas()
-        .map(|interfaces| {
-            interfaces
-                .into_iter()
-                .filter_map(|(_, ip)| match ip {
-                    std::net::IpAddr::V4(ip) if !ip.is_loopback() => Some(ip.to_string()),
-                    _ => None,
-                })
-                .collect()
-        })
+    // Only real LAN adapters, ordered so the phone gets the address of the
+    // network it is actually on (default route first, then InterfaceMetric).
+    let local_ips = crate::discovery::ipv4_interfaces()
+        .map(|interfaces| crate::network_profile::ordered_lan_ips(&interfaces))
         .unwrap_or_default();
     Ok(HubState {
         inner: Arc::new(HubInner {
@@ -462,8 +456,10 @@ async fn serve_listener(
     let app = router(state);
     let addr = listener.local_addr()?;
     hub_log!("[hub] HTTP Hub 启动于 http://{addr}");
-    if let Ok(ip) = local_ip_address::local_ip() {
-        hub_log!("[hub]   手机访问: http://{ip}:{port}");
+    if let Ok(interfaces) = crate::discovery::ipv4_interfaces() {
+        if let Some(ip) = crate::network_profile::ordered_lan_ips(&interfaces).first() {
+            hub_log!("[hub]   手机访问: http://{ip}:{port}");
+        }
     }
 
     axum::serve(
@@ -1132,24 +1128,8 @@ async fn clipboard_clear(State(state): State<HubState>) -> Json<ClipboardSnapsho
 
 async fn get_info(State(state): State<HubState>) -> Json<Info> {
     let files = state.inner.files.read().await.len();
-    let mut ips: Vec<String> = state
-        .inner
-        .local_ips
-        .iter()
-        .filter(|ip| !ip.starts_with("169.254."))
-        .cloned()
-        .collect();
-    ips.sort_by_key(|ip| {
-        if ip.starts_with("192.168.") {
-            0
-        } else if ip.starts_with("10.") {
-            1
-        } else if ip.starts_with("172.") {
-            2
-        } else {
-            3
-        }
-    });
+    // Already filtered to real LAN adapters and ordered by the shared policy.
+    let ips = state.inner.local_ips.clone();
 
     Json(Info {
         name: "Filebridge-Lan Hub",

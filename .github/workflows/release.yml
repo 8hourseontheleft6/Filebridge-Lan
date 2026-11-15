@@ -75,6 +75,9 @@ jobs:
       - name: Clipboard sync tests
         run: npm run test:clipboard
 
+      - name: LAN address selection tests
+        run: npm run test:lan
+
       - name: Hub smoke tests
         run: npm run test:hub
 

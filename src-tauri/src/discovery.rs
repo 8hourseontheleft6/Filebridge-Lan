@@ -65,6 +65,10 @@ pub(crate) struct Ipv4Interface {
     pub mac: Option<[u8; 6]>,
     pub if_type: u32,
     pub oper_status: u32,
+    /// Interface index, used to match the default route to an adapter.
+    pub if_index: u32,
+    /// Windows InterfaceMetric from GetAdaptersAddresses::Ipv4Metric.
+    pub metric: u32,
 }
 
 struct PeerRecord {
@@ -197,13 +201,24 @@ pub(crate) fn targets_from_interfaces(interfaces: &[Ipv4Interface], port: u16) -
     targets
 }
 
+/// Directed broadcast targets for the real LAN only. Virtual adapters
+/// (VirtualBox Host-Only, Hyper-V, VMware, tunnels, …) are never broadcast to.
+pub(crate) fn lan_broadcast_targets(interfaces: &[Ipv4Interface], port: u16) -> Vec<SocketAddr> {
+    let usable: Vec<Ipv4Interface> = interfaces
+        .iter()
+        .filter(|interface| crate::network_profile::is_usable_lan_interface(interface))
+        .cloned()
+        .collect();
+    targets_from_interfaces(&usable, port)
+}
+
 fn build_targets(port: u16) -> (Vec<SocketAddr>, Option<String>) {
     let mut targets = vec![
         SocketAddr::from((Ipv4Addr::new(255, 255, 255, 255), port)),
     ];
     match ipv4_interfaces() {
         Ok(interfaces) => {
-            for target in targets_from_interfaces(&interfaces, port) {
+            for target in lan_broadcast_targets(&interfaces, port) {
                 if !targets.contains(&target) {
                     targets.push(target);
                 }
@@ -304,6 +319,8 @@ pub(crate) fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
                         mac,
                         if_type: current.IfType,
                         oper_status: current.OperStatus as u32,
+                        if_index: unsafe { current.Anonymous1.Anonymous.IfIndex },
+                        metric: current.Ipv4Metric,
                     });
                 }
             }
@@ -567,6 +584,8 @@ mod tests {
                 mac: None,
                 if_type: 6,
                 oper_status: 1,
+                if_index: 0,
+                metric: 0,
             }
         }
         let interfaces = vec![
@@ -596,5 +615,49 @@ mod tests {
         let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
         keys.sort_unstable();
         assert_eq!(keys, ["app", "id", "name", "port", "version"]);
+    }
+
+    #[test]
+    fn lan_broadcast_targets_exclude_virtual_subnets() {
+        fn interface(ip: [u8; 4], name: &str, description: &str, mac: [u8; 6], metric: u32) -> Ipv4Interface {
+            Ipv4Interface {
+                ip: Ipv4Addr::from(ip),
+                prefix_len: 24,
+                adapter_name: String::new(),
+                friendly_name: name.to_string(),
+                adapter_description: description.to_string(),
+                mac: Some(mac),
+                if_type: 6,
+                oper_status: 1,
+                if_index: metric,
+                metric,
+            }
+        }
+        let wifi = Ipv4Interface {
+            if_type: 71,
+            ..interface(
+                [192, 168, 2, 53],
+                "WLAN",
+                "MediaTek Wi-Fi 6E MT7922 (RZ616) 160MHz PCIe Adapter",
+                [0x78, 0xab, 0x9c, 0xff, 0x2e, 0x67],
+                30,
+            )
+        };
+        let host_only = interface(
+            [192, 168, 56, 1],
+            "以太网 4",
+            "VirtualBox Host-Only Ethernet Adapter",
+            [0x0a, 0x00, 0x27, 0x00, 0x00, 0x01],
+            35,
+        );
+        let targets = lan_broadcast_targets(&[wifi, host_only], 42081);
+        assert!(
+            targets.contains(&SocketAddr::from((Ipv4Addr::new(192, 168, 2, 255), 42081))),
+            "the real LAN subnet must still be broadcast to"
+        );
+        assert!(
+            !targets.contains(&SocketAddr::from((Ipv4Addr::new(192, 168, 56, 255), 42081))),
+            "the VirtualBox Host-Only subnet must never be broadcast to"
+        );
     }
 }

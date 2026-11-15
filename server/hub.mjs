@@ -16,7 +16,10 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import dgram from 'node:dgram';
 import { fileURLToPath } from 'node:url';
+
+import { selectLanIps } from './lan-ips.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -136,25 +139,53 @@ function log(...args) {
   console.log('[hub]', ...args);
 }
 
-function lanIps() {
-  const result = [];
+// LAN address selection lives in server/lan-ips.mjs so the smoke tests can
+// import the exact function the Hub uses. It mirrors
+// src-tauri/src/network_profile.rs: only real adapters are advertised and the
+// default-route adapter comes first.
+function outboundIp() {
+  try {
+    const socket = dgram.createSocket('udp4');
+    try {
+      socket.connect(80, '8.8.8.8');
+      return socket.address()?.address || '';
+    } finally {
+      socket.close();
+    }
+  } catch {
+    return '';
+  }
+}
+
+function runtimeAdapters() {
+  const defaultIp = outboundIp();
+  const adapters = [];
   for (const [name, addresses] of Object.entries(os.networkInterfaces())) {
     for (const addr of addresses || []) {
-      if (addr.family === 'IPv4' && !addr.internal) {
-        result.push({ iface: name, ip: addr.address });
-      }
+      if (addr.family !== 'IPv4') continue;
+      adapters.push({
+        name,
+        description: '',
+        mac: addr.mac || '',
+        ip: addr.address,
+        internal: Boolean(addr.internal),
+        up: true,
+        isDefaultRoute: Boolean(defaultIp) && addr.address === defaultIp,
+        // Node has no InterfaceMetric; the default-route rank carries the
+        // decision and the address keeps the order deterministic.
+        metric: 0,
+      });
     }
   }
-  return result;
+  return adapters;
+}
+
+function lanIps() {
+  return selectLanIps(runtimeAdapters());
 }
 
 function primaryIps() {
-  const ips = lanIps();
-  // 优先常见私网网段，过滤掉虚拟网卡的概率更高
-  const preferred = ips.filter(({ ip }) =>
-    /^192\.168\./.test(ip) || /^10\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
-  );
-  return (preferred.length ? preferred : ips).map((x) => x.ip);
+  return lanIps().map((entry) => entry.ip);
 }
 
 function sanitizeName(raw) {

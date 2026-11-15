@@ -43,13 +43,59 @@ function isIPv4(value: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(value);
 }
 
+function isPrivateIPv4(value: string): boolean {
+  return (
+    /^10\./.test(value) ||
+    /^192\.168\./.test(value) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(value)
+  );
+}
+
+/**
+ * 从 Hub 给出的候选地址里挑一个手机可用的。
+ *
+ * Hub 已经过滤掉虚拟网卡并按「默认路由优先」排好序，这里只做安全兜底：
+ * 只接受私网 IPv4，跳过回环/链路本地/未指定/多播地址；如果候选里同时出现
+ * VirtualBox 默认 Host-Only 网段（192.168.56.0/24），优先选择其它地址，
+ * 避免旧版 Hub 把 192.168.56.1 排在前面时二维码直接指向虚拟网卡。
+ */
+export function listPhoneHosts(ips: readonly string[] | null | undefined): string[] {
+  const candidates: string[] = [];
+  for (const ip of ips || []) {
+    const value = String(ip || '');
+    if (!isIPv4(value)) continue;
+    if (!isPrivateIPv4(value)) continue;
+    if (value.startsWith('127.') || value.startsWith('0.')) continue;
+    if (value.startsWith('169.254.')) continue;
+    if (value.startsWith('224.') || value.startsWith('239.') || value.startsWith('255.')) continue;
+    const octets = value.split('.').map(Number);
+    if (octets.some((octet) => octet > 255)) continue;
+    if (candidates.includes(value)) continue;
+    candidates.push(value);
+  }
+  // Keep the Hub order, but move the VirtualBox default Host-Only subnet last
+  // so a stale Hub cannot make the QR point at the virtual adapter.
+  const real = candidates.filter((value) => !value.startsWith('192.168.56.'));
+  const virtualLooking = candidates.filter((value) => value.startsWith('192.168.56.'));
+  return [...real, ...virtualLooking];
+}
+
+/**
+ * 从 Hub 给出的候选地址里挑一个手机可用的。
+ *
+ * Hub 已经过滤掉虚拟网卡并按「默认路由优先」排好序，这里只做安全兜底。
+ */
+export function pickPhoneHost(ips: readonly string[] | null | undefined): string {
+  return listPhoneHosts(ips)[0] || '';
+}
+
 /**
  * 生成手机访问地址。
  * 优先使用 Hub 返回的局域网 IPv4；没有 Hub 信息时退回当前页面的局域网 host。
  */
 export function resolvePhoneBase(info?: HubInfo | null): string {
-  const fromHub = (info?.ips || []).find((ip) => isIPv4(ip) && !ip.startsWith('127.') && !ip.startsWith('169.254.'));
-  const host = fromHub || (!isLocalHost(window.location.hostname) && isIPv4(window.location.hostname)
+  const fromHub = pickPhoneHost(info?.ips);
+  const host = fromHub || (!isLocalHost(window.location.hostname) && isPrivateIPv4(window.location.hostname)
     ? window.location.hostname
     : '');
   if (!host) return '';

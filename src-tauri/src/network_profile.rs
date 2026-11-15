@@ -149,6 +149,79 @@ fn is_physical_if_type(if_type: u32) -> bool {
     matches!(if_type, 6 | 71)
 }
 
+/// Up adapter with a private IPv4 address, skipping loopback/tunnel types.
+pub(crate) fn is_connected_private_interface(interface: &Ipv4Interface) -> bool {
+    interface.oper_status == 1
+        && is_private_ipv4(interface.ip)
+        && interface.if_type != 24
+        && interface.if_type != 131
+}
+
+/// A real, connected LAN adapter. Virtual adapters never qualify, whatever
+/// Windows calls them.
+pub(crate) fn is_usable_lan_interface(interface: &Ipv4Interface) -> bool {
+    is_connected_private_interface(interface) && !is_virtual_adapter(interface)
+}
+
+/// Interface index Windows would use for an off-link destination. This is the
+/// adapter that carries the default route; calling it sends no packet.
+#[cfg(windows)]
+pub(crate) fn default_route_if_index() -> Option<u32> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::GetBestInterface;
+
+    let destination = u32::from_be_bytes([8, 8, 8, 8]);
+    let mut index: u32 = 0;
+    let result = unsafe { GetBestInterface(destination, &mut index) };
+    if result == 0 && index != 0 {
+        Some(index)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn default_route_if_index() -> Option<u32> {
+    None
+}
+
+/// Order the addresses the UI advertises for the phone.
+///
+/// The default-route adapter comes first (that is the network the phone is
+/// actually on), then the Windows InterfaceMetric, then the address itself.
+/// Virtual adapters are already excluded by `is_usable_lan_interface`.
+pub(crate) fn ordered_lan_ips_with(
+    interfaces: &[Ipv4Interface],
+    default_if_index: Option<u32>,
+) -> Vec<String> {
+    let mut candidates: Vec<&Ipv4Interface> = interfaces
+        .iter()
+        .filter(|interface| is_usable_lan_interface(interface))
+        .collect();
+    candidates.sort_by(|a, b| {
+        let rank = |interface: &Ipv4Interface| {
+            default_if_index.map_or(1u8, |index| if interface.if_index == index { 0 } else { 1 })
+        };
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| a.metric.cmp(&b.metric))
+            .then_with(|| a.ip.to_string().cmp(&b.ip.to_string()))
+    });
+
+    let mut ips: Vec<String> = Vec::new();
+    for interface in candidates {
+        let ip = interface.ip.to_string();
+        if !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+    ips
+}
+
+/// Advertised addresses using the live default route of this machine.
+pub(crate) fn ordered_lan_ips(interfaces: &[Ipv4Interface]) -> Vec<String> {
+    ordered_lan_ips_with(interfaces, default_route_if_index())
+}
+
 /// Pick the interfaces that may carry the LAN service.
 ///
 /// Rules, in order:
@@ -162,12 +235,7 @@ pub(crate) fn select_networks(
 ) -> NetworkSelection {
     let connected: Vec<&Ipv4Interface> = interfaces
         .iter()
-        .filter(|interface| {
-            interface.oper_status == 1
-                && is_private_ipv4(interface.ip)
-                && interface.if_type != 24
-                && interface.if_type != 131
-        })
+        .filter(|interface| is_connected_private_interface(interface))
         .collect();
 
     if connected.is_empty() {
@@ -374,6 +442,8 @@ mod tests {
             mac,
             if_type,
             oper_status: 1,
+            if_index: 0,
+            metric: 0,
         }
     }
 
@@ -522,6 +592,8 @@ mod tests {
                 mac: Some([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]),
                 if_type: 71,
                 oper_status: 1,
+                if_index: 0,
+                metric: 0,
             },
             crate::discovery::Ipv4Interface {
                 ip: Ipv4Addr::new(172, 20, 0, 1),
@@ -532,6 +604,8 @@ mod tests {
                 mac: Some([0x00, 0x15, 0x5d, 0x00, 0x00, 0x01]),
                 if_type: 6,
                 oper_status: 1,
+                if_index: 0,
+                metric: 0,
             },
         ];
         let profiles = HashMap::from([
@@ -618,6 +692,201 @@ mod tests {
         assert!(!status.compliant, "a VM adapter alone must not enable the LAN service");
     }
 
+    fn lan(
+        ip: [u8; 4],
+        friendly_name: &str,
+        description: &str,
+        if_type: u32,
+        mac: Option<[u8; 6]>,
+        if_index: u32,
+        metric: u32,
+        up: bool,
+    ) -> Ipv4Interface {
+        let mut interface = adapter(ip, friendly_name, description, if_type, mac);
+        interface.if_index = if_index;
+        interface.metric = metric;
+        interface.oper_status = if up { 1 } else { 2 };
+        interface
+    }
+
+    fn wifi_up(if_index: u32) -> Ipv4Interface {
+        lan(
+            [192, 168, 2, 53],
+            "WLAN",
+            "MediaTek Wi-Fi 6E MT7922 (RZ616) 160MHz PCIe Adapter",
+            71,
+            Some([0x78, 0xab, 0x9c, 0xff, 0x2e, 0x67]),
+            if_index,
+            30,
+            true,
+        )
+    }
+
+    fn virtualbox_up(ip: [u8; 4], name: &str, if_index: u32, metric: u32) -> Ipv4Interface {
+        lan(
+            ip,
+            name,
+            "VirtualBox Host-Only Ethernet Adapter",
+            6,
+            Some([0x0a, 0x00, 0x27, 0x00, 0x00, if_index as u8]),
+            if_index,
+            metric,
+            true,
+        )
+    }
+
+    /// The reported field bug: the QR code used the VirtualBox Host-Only address
+    /// (192.168.56.1) instead of the private Wi-Fi address (192.168.2.53).
+    #[test]
+    fn lan_ips_use_private_wifi_and_skip_virtualbox() {
+        let wifi = wifi_up(8);
+        let host_only = virtualbox_up([192, 168, 56, 1], "以太网 4", 21, 35);
+        let ips = ordered_lan_ips_with(&[host_only, wifi], Some(8));
+        assert_eq!(ips, vec!["192.168.2.53"], "only the real Wi-Fi may be advertised");
+    }
+
+    #[test]
+    fn lan_ips_skip_every_virtualbox_adapter() {
+        let wifi = wifi_up(8);
+        let first = virtualbox_up([192, 168, 56, 1], "以太网 4", 21, 35);
+        let second = virtualbox_up([192, 168, 56, 2], "以太网 2", 22, 40);
+        let ips = ordered_lan_ips_with(&[first, wifi, second], Some(8));
+        assert_eq!(ips, vec!["192.168.2.53"]);
+    }
+
+    #[test]
+    fn virtualbox_in_the_same_private_prefix_never_wins() {
+        // Same 192.168.2.x prefix as the real Wi-Fi and a lower metric: it must
+        // still be excluded before ordering, not merely sorted lower.
+        let wifi = wifi_up(8);
+        let host_only = lan(
+            [192, 168, 2, 1],
+            "以太网 4",
+            "VirtualBox Host-Only Ethernet Adapter",
+            6,
+            Some([0x0a, 0x00, 0x27, 0x00, 0x00, 0x01]),
+            21,
+            5,
+            true,
+        );
+        let ips = ordered_lan_ips_with(&[host_only, wifi], None);
+        assert_eq!(ips, vec!["192.168.2.53"]);
+    }
+
+    #[test]
+    fn lan_ips_skip_adapters_that_are_down() {
+        let wifi_down = lan(
+            [192, 168, 2, 53],
+            "WLAN",
+            "MediaTek Wi-Fi 6E MT7922 (RZ616) 160MHz PCIe Adapter",
+            71,
+            Some([0x78, 0xab, 0x9c, 0xff, 0x2e, 0x67]),
+            8,
+            30,
+            false,
+        );
+        let ethernet_up = lan(
+            [10, 0, 0, 5],
+            "以太网",
+            "Realtek PCIe GbE Family Controller",
+            6,
+            Some([0x10, 0xb6, 0x76, 0x85, 0xce, 0x2d]),
+            15,
+            25,
+            true,
+        );
+        let ips = ordered_lan_ips_with(&[wifi_down, ethernet_up], Some(15));
+        assert_eq!(ips, vec!["10.0.0.5"], "the connected Ethernet must be used");
+    }
+
+    #[test]
+    fn lan_ips_use_wifi_when_ethernet_is_down() {
+        let wifi = wifi_up(8);
+        let ethernet_down = lan(
+            [10, 0, 0, 5],
+            "以太网",
+            "Realtek PCIe GbE Family Controller",
+            6,
+            Some([0x10, 0xb6, 0x76, 0x85, 0xce, 0x2d]),
+            15,
+            25,
+            false,
+        );
+        let ips = ordered_lan_ips_with(&[ethernet_down, wifi], Some(8));
+        assert_eq!(ips, vec!["192.168.2.53"]);
+    }
+
+    #[test]
+    fn default_route_adapter_wins_over_string_order() {
+        let wifi = wifi_up(8);
+        let ethernet = lan(
+            [10, 0, 0, 5],
+            "以太网",
+            "Realtek PCIe GbE Family Controller",
+            6,
+            Some([0x10, 0xb6, 0x76, 0x85, 0xce, 0x2d]),
+            15,
+            25,
+            true,
+        );
+        // Default route on Wi-Fi: it must come first even though "10.0.0.5"
+        // sorts before "192.168.2.53" as a string.
+        let ips = ordered_lan_ips_with(&[ethernet.clone(), wifi.clone()], Some(8));
+        assert_eq!(ips, vec!["192.168.2.53", "10.0.0.5"]);
+
+        // Default route on Ethernet: the order flips.
+        let ips = ordered_lan_ips_with(&[ethernet, wifi], Some(15));
+        assert_eq!(ips, vec!["10.0.0.5", "192.168.2.53"]);
+    }
+
+    #[test]
+    fn lan_ips_are_empty_when_only_virtual_adapters_exist() {
+        let first = virtualbox_up([192, 168, 56, 1], "以太网 4", 21, 35);
+        let second = virtualbox_up([192, 168, 56, 2], "以太网 2", 22, 40);
+        assert!(ordered_lan_ips_with(&[first, second], None).is_empty());
+    }
+
+    #[test]
+    fn shared_fixture_matches_the_rust_selection() {
+        // The same fixture is asserted by the Node Hub test, so the two
+        // implementations agree on the candidate order.
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../scripts/fixtures/lan-ips.json"))
+                .expect("fixture json");
+        let default_index = fixture["defaultRouteInterfaceIndex"].as_u64().map(|v| v as u32);
+        let mut interfaces = Vec::new();
+        for row in fixture["adapters"].as_array().expect("adapters") {
+            let ip = row["ip"].as_str().expect("ip");
+            let octets: Vec<u8> = ip.split('.').map(|part| part.parse().expect("octet")).collect();
+            let mac_hex: Vec<u8> = row["mac"]
+                .as_str()
+                .expect("mac")
+                .split(':')
+                .map(|part| u8::from_str_radix(part, 16).expect("mac octet"))
+                .collect();
+            let mut mac = [0u8; 6];
+            mac.copy_from_slice(&mac_hex);
+            let mut interface = adapter(
+                [octets[0], octets[1], octets[2], octets[3]],
+                row["name"].as_str().expect("name"),
+                row["description"].as_str().expect("description"),
+                row["ifType"].as_u64().expect("ifType") as u32,
+                Some(mac),
+            );
+            interface.if_index = row["ifIndex"].as_u64().expect("ifIndex") as u32;
+            interface.metric = row["metric"].as_u64().expect("metric") as u32;
+            interface.oper_status = if row["up"].as_bool().expect("up") { 1 } else { 2 };
+            interfaces.push(interface);
+        }
+        let expected: Vec<String> = fixture["expected"]
+            .as_array()
+            .expect("expected")
+            .iter()
+            .map(|value| value.as_str().expect("expected ip").to_string())
+            .collect();
+        assert_eq!(ordered_lan_ips_with(&interfaces, default_index), expected);
+    }
+
     /// Manual diagnostics: prints what the current machine really reports so a
     /// field issue can be reproduced without the desktop UI. Run with
     /// `cargo test -- --ignored --nocapture diagnose_local_machine_adapters`.
@@ -645,6 +914,11 @@ mod tests {
         println!(
             "status checked={} compliant={} networks={:?} error={:?}",
             status.checked, status.compliant, status.networks, status.error
+        );
+        println!(
+            "advertised_ips default_route={:?} ordered={:?}",
+            default_route_if_index(),
+            ordered_lan_ips(&interfaces)
         );
     }
 }

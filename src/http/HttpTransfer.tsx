@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { formatBytes, formatDuration } from '../lib/format';
-import { API_BASE, isTauriHost, resolvePhoneBase, type HubInfo, type LanServiceStatus } from '../lib/hub';
+import { API_BASE, isTauriHost, listPhoneHosts, resolvePhoneBase, type HubInfo, type LanServiceStatus } from '../lib/hub';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
@@ -1492,6 +1492,9 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const phoneUrl = phoneBase && sessionCode
     ? `${phoneBase}/#code=${encodeURIComponent(sessionCode)}`
     : '';
+  // When several real LAN addresses exist, show the alternatives instead of
+  // silently depending on the first one.
+  const phoneAlternates = listPhoneHosts(info?.ips).slice(1);
   const isViteDev = window.location.port === '5173';
   const uploadTotalBytes = upload?.batchTotal ?? upload?.total ?? 0;
   const uploadConfirmedOffset = upload?.confirmedOffset ?? upload?.offset ?? 0;
@@ -2264,23 +2267,33 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
           {desktop && online === true && (
             phoneUrl ? (
-              <JoinQr
-                url={phoneUrl}
-                displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
-                title="手机扫码打开"
-                actions={(
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-icon-round"
-                    aria-pressed={showCode}
-                    aria-label={showCode ? '隐藏 code' : '显示 code'}
-                    title={showCode ? '隐藏 code' : '显示 code'}
-                    onClick={() => setShowCode((value) => !value)}
-                  >
-                    <Icon name={showCode ? 'eye-off' : 'eye'} size={15} />
-                  </button>
+              <>
+                <JoinQr
+                  url={phoneUrl}
+                  displayUrl={showCode ? phoneUrl : phoneUrl.replace(/([?&#]code=)\d{6}/, '$1••••••')}
+                  title="手机扫码打开"
+                  actions={(
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon-round"
+                      aria-pressed={showCode}
+                      aria-label={showCode ? '隐藏 code' : '显示 code'}
+                      title={showCode ? '隐藏 code' : '显示 code'}
+                      onClick={() => setShowCode((value) => !value)}
+                    >
+                      <Icon name={showCode ? 'eye-off' : 'eye'} size={15} />
+                    </button>
+                  )}
+                />
+                {phoneAlternates.length > 0 && (
+                  <p className="hint">
+                    其它可用地址（二维码无法打开时手动输入）：
+                    {phoneAlternates
+                      .map((host) => `http://${host}:${info?.port || 42080}`)
+                      .join(' · ')}
+                  </p>
                 )}
-              />
+              </>
             ) : (
               <p className="hint">
                 {sessionCode
