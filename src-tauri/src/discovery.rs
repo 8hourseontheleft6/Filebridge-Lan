@@ -58,6 +58,11 @@ pub(crate) struct Ipv4Interface {
     pub prefix_len: u8,
     pub adapter_name: String,
     pub friendly_name: String,
+    /// Adapter description reported by the driver (GetAdaptersAddresses::Description).
+    /// It is not localized and names the virtual driver even when Windows renames
+    /// the adapter to "以太网 2" / "Ethernet 2".
+    pub adapter_description: String,
+    pub mac: Option<[u8; 6]>,
     pub if_type: u32,
     pub oper_status: u32,
 }
@@ -282,11 +287,21 @@ pub(crate) fn ipv4_interfaces() -> Result<Vec<Ipv4Interface>, String> {
                 let octets = unsafe { sin.sin_addr.S_un.S_un_b };
                 let ip = Ipv4Addr::new(octets.s_b1, octets.s_b2, octets.s_b3, octets.s_b4);
                 if !ip.is_loopback() && !ip.is_unspecified() {
+                    let mac_len = (current.PhysicalAddressLength as usize).min(current.PhysicalAddress.len());
+                    let mac = if mac_len >= 6 {
+                        let mut value = [0u8; 6];
+                        value.copy_from_slice(&current.PhysicalAddress[..6]);
+                        Some(value)
+                    } else {
+                        None
+                    };
                     interfaces.push(Ipv4Interface {
                         ip,
                         prefix_len: item.OnLinkPrefixLength,
                         adapter_name: pstr_to_string(current.AdapterName),
                         friendly_name: pwstr_to_string(current.FriendlyName),
+                        adapter_description: pwstr_to_string(current.Description),
+                        mac,
                         if_type: current.IfType,
                         oper_status: current.OperStatus as u32,
                     });
@@ -548,6 +563,8 @@ mod tests {
                 prefix_len,
                 adapter_name: String::new(),
                 friendly_name: String::new(),
+                adapter_description: String::new(),
+                mac: None,
                 if_type: 6,
                 oper_status: 1,
             }

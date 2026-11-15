@@ -42,6 +42,16 @@ struct GateStatus {
     detail: Option<String>,
 }
 
+/// Distinguish "the real network is Public" from "there is no real network at
+/// all", so the UI can explain why the LAN service stays off.
+fn gate_for(status: &network_profile::NetworkProfileStatus) -> &'static str {
+    if status.checked && status.networks.is_empty() {
+        "no_usable_network"
+    } else {
+        "public_blocked"
+    }
+}
+
 #[derive(Clone)]
 pub struct LanServiceState {
     config: ServiceConfig,
@@ -138,7 +148,7 @@ impl LanServiceState {
                 self.set_gate("port_error", Some(error));
             }
         } else {
-            self.set_gate("public_blocked", Some(status.error.unwrap_or_else(|| {
+            self.set_gate(gate_for(&status), Some(status.error.unwrap_or_else(|| {
                 "当前网络不是专用网络，局域网服务不会启动".to_string()
             })));
         }
@@ -154,7 +164,7 @@ impl LanServiceState {
         } else {
             self.stop_runtime().await;
             self.set_gate(
-                "public_blocked",
+                gate_for(&status),
                 Some(status.error.unwrap_or_else(|| {
                     "当前网络不是专用网络，局域网服务不会启动".to_string()
                 })),
@@ -239,6 +249,7 @@ pub fn discovery_status(state: tauri::State<'_, LanServiceState>) -> DiscoverySt
 #[cfg(test)]
 mod tests {
     use super::LanServiceState;
+    use super::gate_for;
 
     static SERVICE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     use crate::network_profile::NetworkProfileStatus;
@@ -286,6 +297,42 @@ mod tests {
     fn private_state_allows_services() {
         assert_eq!(decide(false, allowed(&status(true, None))), Decision::Start);
         assert_eq!(decide(true, allowed(&status(true, None))), Decision::Keep);
+    }
+
+    #[test]
+    fn gate_names_public_network_and_missing_network_differently() {
+        use crate::network_profile::NetworkProfile;
+
+        // A real Public profile: the gate says the network is Public.
+        let public = NetworkProfileStatus {
+            checked: true,
+            compliant: false,
+            networks: vec![NetworkProfile {
+                name: "WLAN".to_string(),
+                category: "public".to_string(),
+                label: "公用网络".to_string(),
+            }],
+            error: Some("检测到非专用网络：WLAN".to_string()),
+        };
+        assert_eq!(gate_for(&public), "public_blocked");
+
+        // Only virtual adapters were found: the UI needs a different explanation.
+        let no_network = NetworkProfileStatus {
+            checked: true,
+            compliant: false,
+            networks: Vec::new(),
+            error: Some("只检测到虚拟网卡，已暂停局域网服务；请连接真实 Wi-Fi 或以太网".to_string()),
+        };
+        assert_eq!(gate_for(&no_network), "no_usable_network");
+
+        // A detection failure is still reported as the Public gate.
+        let failed = NetworkProfileStatus {
+            checked: false,
+            compliant: false,
+            networks: Vec::new(),
+            error: Some("创建 NetworkListManager 失败".to_string()),
+        };
+        assert_eq!(gate_for(&failed), "public_blocked");
     }
 
     #[tokio::test]
@@ -354,6 +401,8 @@ mod tests {
             prefix_len: 24,
             adapter_name: String::new(),
             friendly_name: String::new(),
+            adapter_description: String::new(),
+            mac: None,
             if_type: 6,
             oper_status: 1,
         };
@@ -362,6 +411,8 @@ mod tests {
             prefix_len: 16,
             adapter_name: String::new(),
             friendly_name: String::new(),
+            adapter_description: String::new(),
+            mac: None,
             if_type: 6,
             oper_status: 1,
         };

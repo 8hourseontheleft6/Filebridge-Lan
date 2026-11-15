@@ -223,7 +223,9 @@ interface HttpTransferProps {
 
 export function HttpTransfer({ lanService = null, networkBlocked = false }: HttpTransferProps = {}) {
   const desktop = isTauriHost();
-  const publicPaused = lanService?.gate === 'public_blocked' || networkBlocked;
+  // The gate either means "real network is Public" or "no real network at all".
+  const noUsableNetwork = lanService?.gate === 'no_usable_network';
+  const publicPaused = lanService?.gate === 'public_blocked' || noUsableNetwork || networkBlocked;
   const serviceUnavailable = desktop && lanService?.running === false && !publicPaused;
   const [pausedError, setPausedError] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
@@ -1792,9 +1794,15 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     return (
       <div className="lan-dashboard">
         <article className="card lan-paused-card">
-          <h2>当前网络为公用网络，局域网传输服务已暂停。</h2>
+          <h2>
+            {noUsableNetwork
+              ? '没有可用的真实网络，局域网传输服务已暂停。'
+              : '当前网络为公用网络，局域网传输服务已暂停。'}
+          </h2>
           <p className="lan-paused-copy">
-            切换到专用网络后将自动恢复，不会在 Public 网络开放 42080/42081。
+            {noUsableNetwork
+              ? '只检测到虚拟网卡或没有已连接的真实 Wi-Fi / 以太网。Filebridge 只绑定真实网卡，连接真实网络后会自动恢复。'
+              : '切换到专用网络后将自动恢复，不会在 Public 网络开放 42080/42081。'}
           </p>
           <div className="lan-paused-meta">
             <span className={`status-pill ${token ? 'warn' : 'warn'}`}>
