@@ -66,6 +66,37 @@ Bridge Relay（:43000，HTTPS 反向代理）
 | Node Hub（开发/自托管） | `server/hub.mjs` |
 | 加密中继服务 | `server/bridge.mjs` |
 
+## 当前代码结构（1.6.1 基线）
+
+前端仍以「组件直接通信」为主，分层重构正在进行，详见 `FRONTEND-ARCHITECTURE.md`。
+
+| 文件 | 行数 | 当前职责 |
+|---|---|---|
+| `src/http/HttpTransfer.tsx` | 2236 | session/token、文件列表、上传队列、分块与续传、下载、SSE、Tauri 调用、速率统计、UI |
+| `src/relay/RelayTransfer.tsx` | 554 | 中继传输 UI + 加密分片状态机 |
+| `src/App.tsx` | 402 | 布局 + 网络门禁（直接 `invoke`） |
+| `src/http/ClipboardPanel.tsx` | 379 | 文字同步 UI + `fetch`/`invoke` + 轮询 |
+| `src/components/SettingsPanel.tsx` | 202 | 设置 UI + `invoke` |
+| `src/http/NearbyComputers.tsx` | 143 | 附近电脑 UI + `invoke` 轮询 |
+| `src-tauri/src/hub.rs` | 1874 | Rust Hub：路由、鉴权、状态、文件存取、上传/下载、剪贴板、连接请求 |
+| `server/hub.mjs` | 1156 | Node Hub：与 Rust 相同的领域混在一个文件 |
+
+已拆分的边界（保留复用）：`src/lib/clipboard.ts`、`src/lib/uploadOffsets.ts`、
+`src/lib/connectionMonitor.ts`、`src/http/connect.ts`、`src/relay/api.ts`、
+`src-tauri/src/{clipboard,downloads,network_profile,discovery,lan_service}.rs`。
+
+## 目标结构（重构进行中，尚未实现）
+
+```text
+UI 组件 → Feature Hook/Controller → Application Service
+        → API Client / Tauri Platform Adapter → Node Hub / Rust Hub
+```
+
+- 前端目标目录、依赖方向、临时例外与迁移阶段见 `FRONTEND-ARCHITECTURE.md`；
+- 后端目标：`src-tauri/src/hub/`（http handlers、services、storage、events、error）与
+  `server/`（http router/security/responses、features、stores）按领域拆分。
+- 边界由 `npm run check:architecture` 强制（legacy 例外清单只减不增）。
+
 ## 端口
 
 | 端口 | 用途 |
