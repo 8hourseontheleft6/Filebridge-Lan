@@ -49,6 +49,9 @@ jobs:
       - name: API client tests
         run: npm run test:api
 
+      - name: Feature boundary tests
+        run: npm run test:features
+
       - name: Hub smoke tests
         run: npm run test:hub
 

@@ -28,12 +28,6 @@ const SRC = path.join(ROOT, 'src');
  * Remove entries in the same commit that migrates the file.
  */
 const ALLOWLIST = {
-  'src/App.tsx': ['tauri-invoke', 'tauri-core-import'],
-  'src/lib/hub.ts': ['http-fetch', 'api-base'],
-  'src/components/SettingsPanel.tsx': ['tauri-invoke', 'tauri-core-import'],
-  'src/http/ConnectApproval.tsx': ['api-base'],
-  'src/http/ConnectPanel.tsx': ['api-base'],
-  'src/http/HostApprovalGate.tsx': ['api-base'],
   'src/http/HttpTransfer.tsx': [
     'tauri-invoke',
     'tauri-core-import',
@@ -42,8 +36,6 @@ const ALLOWLIST = {
     'api-base',
     'event-source',
   ],
-  'src/http/NearbyComputers.tsx': ['tauri-invoke', 'tauri-core-import'],
-  'src/http/connect.ts': ['http-fetch', 'api-base'],
 };
 
 const RULES = [
