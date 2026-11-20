@@ -59,7 +59,7 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 
 | 文件 | 行数 | 混合的职责 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 1275 | 速率统计、大量 UI 与页面编排（session/pairing 已于 E1、文件列表/选择/删除已于 E2、上传已于 E3、下载已于 E4、连接/SSE 已于 E5 迁出） |
+| `src/http/HttpTransfer.tsx` | 904 | 速率统计、presence、页面编排与连接卡（session/pairing E1、文件列表 E2、上传 E3、下载 E4、连接/SSE E5、卡片 UI E6 已迁出） |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
 
 已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
@@ -149,6 +149,20 @@ HttpTransfer 保留页面编排、速率统计与 UI；未改 SSE endpoint、hea
 E5 完成后 HttpTransfer 不再直接使用 `fetch` / `API_BASE` / `EventSource` / Tauri import：
 **architecture allowlist 归零（0 个文件）**。
 
+已迁移（阶段 E6）：
+
+| 项 | 迁移前 | 迁移后 |
+|---|---|---|
+| `src/http/HttpTransfer.tsx` | 1275 | **904** |
+| 文件列表卡片 / 上传下载进度 / 配对详情 | 内联 JSX（约 370 行） | `components/{FileListCard,TransferProgress,PairingDetails}.tsx` |
+
+三个组件只接收 props、回调与既有展示类型，并渲染原来的根元素（`article.files-card`、
+`div.progress-column`、`div.pairing-details`）；DOM 层级、class、aria、禁用条件与文案不变，
+排序/选择/上传/下载/取消仍由各 controller 提供。HttpTransfer 保留速率统计、presence、
+页面编排、连接卡与 toast。
+
+阶段 E 收口：E1–E6 完成，HttpTransfer 1275 → 904，allowlist 保持 0。
+
 删除的旧文件：`src/http/connect.ts`（并入 `src/api/connectionApi.ts`）、`src/lib/hub.ts`
 （运行环境判断与 `API_BASE` → `platform/runtime.ts`；`fetchHubInfo` → `api/infoApi.ts`；
 手机地址函数 → `features/network/lanAddress.ts`）。
@@ -172,7 +186,7 @@ E5 完成后 HttpTransfer 不再直接使用 `fetch` / `API_BASE` / `EventSource
 | B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 已完成 |
 | C | 剪贴板纵向切片（api/service/controller + 面板改造） | 已完成（UI 四态回归待补） |
 | D | 设置、网络门禁、连接模块 | 已完成 |
-| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1–E5 已完成，allowlist 归零；E6 UI 精简为下一步 |
+| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1–E6 已完成，allowlist 归零 |
 | F | Relay 模块 | 待开始 |
 | G | Rust Hub 服务化 | 待开始 |
 | H | Node Hub 服务化 + 双端契约 fixture | 待开始 |

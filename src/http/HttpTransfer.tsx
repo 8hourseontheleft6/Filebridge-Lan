@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatBytes, formatDuration } from '../lib/format';
 import { isIosDevice, isTauriHost } from '../platform/runtime';
 import { tauri } from '../platform/tauri';
 import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress';
@@ -13,10 +12,11 @@ import type { ActiveDownload } from '../features/downloads/types';
 import { useHubConnection } from '../features/connection/useHubConnection';
 import type { LiveUpload } from '../features/connection/types';
 import { JoinQr } from '../components/JoinQr';
-import { CopyButton } from '../components/CopyButton';
-import { RateCard } from '../components/RateCard';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
+import { FileListCard } from '../components/FileListCard';
+import { TransferProgress } from '../components/TransferProgress';
+import { PairingDetails } from '../components/PairingDetails';
 import { confirmedPercent, shouldShowLiveUpload } from '../lib/uploadOffsets';
 import { usePresenceList } from '../lib/usePresence';
 import { ConnectPanel } from './ConnectPanel';
@@ -24,21 +24,10 @@ import { NearbyComputers } from './NearbyComputers';
 import type { NearbyPeer } from '../features/connection/types';
 import { ClipboardPanel } from './ClipboardPanel';
 
-function percentOf(loaded: number, total: number): number {
-  if (total > 0) return Math.min(100, Math.round((loaded / total) * 100));
-  return loaded > 0 ? 100 : 0;
-}
-
 interface ToastState {
   text: string;
   kind: 'success' | 'error' | 'info';
   path?: string;
-}
-
-function fileExtension(name: string): string {
-  const dot = name.lastIndexOf('.');
-  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
-  return ext ? ext.slice(0, 4).toUpperCase() : 'FILE';
 }
 
 function needsSequentialFilePicker(): boolean {
@@ -119,8 +108,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const { online, setOnline, info, loadInfo, refresh, liveUpload, clearLiveUploadFor } = hub;
   setOnlineRef.current = setOnline;
 
-  const inputRef = useRef<HTMLInputElement>(null);
-  const mediaInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const needsPicker = needsSequentialFilePicker();
 
@@ -595,78 +582,18 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const pairingExpanded = token ? pairingOpen : true;
 
   const pairingDetails = (
-    <div className={`pairing-details${pairingExpanded ? ' is-open' : ''}`}>
-      <button
-        type="button"
-        className="pairing-summary"
-        aria-expanded={pairingExpanded}
-        aria-controls="pairing-body"
-        onClick={() => setPairingOpen((value) => !value)}
-      >
-        <span>手动连接 / 连接详情</span>
-        <Icon name="chevron-down" size={14} className="pairing-chevron" />
-      </button>
-      <div
-        id="pairing-body"
-        className={`pairing-body disclosure${pairingExpanded ? ' is-open' : ''}`}
-        inert={pairingExpanded ? undefined : true}
-      >
-        <div className="disclosure-inner">
-          <div className="pairing-code-row">
-            {sessionCode && (
-              <>
-                <span>配对码</span>
-                <strong>{sessionCode}</strong>
-              </>
-            )}
-            <div className="pairing-code-actions">
-              {sessionCode && (
-                <CopyButton text={sessionCode} label="复制配对码" variant="icon" />
-              )}
-              {canRotate && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon-round"
-                  onClick={() => void rotatePairing()}
-                  disabled={rotating}
-                  aria-label="重新生成配对码"
-                  title="重新生成配对码"
-                >
-                  <Icon name="refresh" size={14} className={rotating ? 'is-spinning' : undefined} />
-                </button>
-              )}
-            </div>
-          </div>
-          <label className="field-label" htmlFor="http-session-code">手动输入配对码</label>
-          <div className="path-row">
-            <input
-              id="http-session-code"
-              className="input"
-              value={codeInput}
-              onChange={(event) => session.setCodeInput(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void unlock(); }}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="6 位数字"
-              style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: 4 }}
-            />
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void unlock()}
-              disabled={codeInput.length !== 6 || rotating}
-            >
-              连接
-            </button>
-          </div>
-          {codeError && <p className="text-error" role="alert">{codeError}</p>}
-          <p className="hint">
-            扫码即可连接；配对码仅用于授权。
-          </p>
-        </div>
-      </div>
-    </div>
+    <PairingDetails
+      sessionCode={sessionCode}
+      codeInput={codeInput}
+      codeError={codeError}
+      canRotate={canRotate}
+      rotating={rotating}
+      expanded={pairingExpanded}
+      onToggle={() => setPairingOpen((value) => !value)}
+      onCodeInput={(value) => session.setCodeInput(value)}
+      onUnlock={() => void unlock()}
+      onRotate={() => void rotatePairing()}
+    />
   );
 
   const serviceNotice = desktop && online === false && !publicPaused ? (
@@ -787,365 +714,67 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       )}
       <div className="dashboard-grid">
 
-        <article className="card files-card">
-          <div className="card-head">
-            <div>
-              <h2>文件列表</h2>
-            </div>
-            <div className="card-actions">
-              <span className="count-badge">{files.length}</span>
-              {selectedIds.size > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-small"
-                  onClick={() => void saveSelected()}
-                  disabled={online === false || batchSaving || batchDeleting || savingId !== null}
-                >
-                  {desktop ? '保存所选' : '下载所选'} ({selectedIds.size})
-                </button>
-              )}
-              {selectedIds.size > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-danger btn-small"
-                  onClick={() => void deleteSelected()}
-                  disabled={online === false || batchDeleting || batchSaving || savingId !== null}
-                >
-                  {batchDeleting ? '删除中…' : `删除所选 (${selectedIds.size})`}
-                </button>
-              )}
-              {files.length > 0 && (
-                <button
-                  type="button"
-                  className={`btn btn-ghost btn-icon-round${allSelected ? ' is-active' : ''}`}
-                  onClick={toggleSelectAll}
-                  disabled={online === false}
-                  aria-pressed={allSelected}
-                  aria-label={allSelected ? '取消全选' : '全选'}
-                  title={allSelected ? '取消全选' : '全选'}
-                >
-                  <Icon name="check" size={15} />
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-ghost btn-icon-round"
-                onClick={() => {
-                  if (online === false) return;
-                  inputRef.current?.click();
-                }}
-                disabled={online === false}
-                aria-label="选择文件上传"
-                title="选择文件上传"
-              >
-                <Icon name="plus" size={15} />
-              </button>
-              {desktop && (
-                <button type="button" className="btn btn-ghost btn-icon-round" onClick={openDownloadDir} title="打开下载文件夹" aria-label="打开下载文件夹">
-                  <Icon name="folder" size={14} />
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-ghost btn-icon-round"
-                aria-label="刷新文件列表"
-                title="刷新"
-                onClick={() => { spinRefresh(); void refresh(); }}
-              >
-                <Icon name="refresh" size={14} className={refreshSpinning ? 'is-spinning' : undefined} />
-              </button>
-            </div>
-          </div>
+        <FileListCard
+          files={files}
+          fileRows={fileRows}
+          selectedIds={selectedIds}
+          allSelected={allSelected}
+          online={online}
+          desktop={desktop}
+          needsPicker={needsPicker}
+          pendingFiles={pendingFiles}
+          refreshSpinning={refreshSpinning}
+          error={error}
+          savingId={savingId}
+          batchSaving={batchSaving}
+          batchDeleting={batchDeleting}
+          savedPaths={savedPaths}
+          onSelectFiles={selectFiles}
+          onUploadPending={uploadPending}
+          onClearPending={() => setPendingFiles([])}
+          onSaveSelected={saveSelected}
+          onDeleteSelected={() => void deleteSelected()}
+          onToggleAll={toggleSelectAll}
+          onRefresh={() => { spinRefresh(); void refresh(); }}
+          onOpenDownloadDir={openDownloadDir}
+          onToggleSelected={toggleSelected}
+          onSaveFile={(file) => void saveDownload(file)}
+          onOpenPath={openPath}
+          onDeleteFile={(id) => void deleteFile(id)}
+          downloadUrl={downloadUrl}
+          onBrowserDownload={() => setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' })}
+        />
 
-          {online === false && (
-            <p className="offline-cache-note" role="status">
-              <Icon name="alert" size={14} /> 离线缓存，可能已过期
-            </p>
-          )}
-
-          {needsPicker && (
-            <div className="ios-media-picker">
-              <button type="button" className="btn btn-small btn-ghost" onClick={() => mediaInputRef.current?.click()} disabled={online === false}>
-                选择照片 / 视频
-              </button>
-              <span>Safari 可连续选择多张；iCloud 照片请先下载原片</span>
-            </div>
-          )}
-
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            disabled={online === false}
-            aria-label="选择要上传的文件"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                selectFiles(e.target.files);
-              }
-              e.target.value = '';
-            }}
-          />
-
-          <input
-            ref={mediaInputRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            disabled={online === false}
-            aria-label="选择照片或视频"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                selectFiles(e.target.files);
-              }
-              e.target.value = '';
-            }}
-          />
-
-          {pendingFiles.length > 0 && (
-            <div className="pending-files" role="status">
-              <p>已选择 {pendingFiles.length} 个文件，可继续添加后统一上传。</p>
-              <div className="pending-actions">
-                <button type="button" className="btn btn-small btn-ghost" onClick={() => mediaInputRef.current?.click()} disabled={online === false}>
-                  继续选择
-                </button>
-                <button type="button" className="btn btn-small btn-primary" onClick={uploadPending} disabled={online === false}>
-                  开始上传
-                </button>
-                <button type="button" className="btn btn-small btn-ghost" onClick={() => setPendingFiles([])}>
-                  清空
-                </button>
-              </div>
-            </div>
-          )}
-
-          {error && <p className="text-error form-error">{error}</p>}
-
-          <div className={`file-list-wrap${files.length > 0 ? ' has-files' : ''}`}>
-            <div className="file-list">
-              {fileRows.length === 0 && (
-                <p className="file-list-empty">
-                  把文件拖到窗口任意位置，或点右上角 <Icon name="plus" size={13} /> 上传
-                </p>
-              )}
-              {fileRows.map(({ key, item: file, leaving }) => (
-                <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
-                  <div className={`file-item file-row${selectedIds.has(file.id) ? ' selected' : ''}`}>
-                    <label className="file-select-hit">
-                      <input
-                        type="checkbox"
-                        className="file-select"
-                        checked={selectedIds.has(file.id)}
-                        onChange={() => toggleSelected(file.id)}
-                        disabled={online === false}
-                        aria-label={`选择 ${file.name}`}
-                      />
-                    </label>
-                    <span className="file-icon file-ext" aria-hidden>{fileExtension(file.name)}</span>
-                    <div className="file-main" title={file.name}>
-                      <div className="file-name">{file.name}</div>
-                      <div className="file-status">
-                        {formatBytes(file.size)} · SHA-256 {file.sha256.slice(0, 10)}…
-                      </div>
-                    </div>
-                    <div className="file-actions">
-                      {desktop ? (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn-small btn-ghost"
-                            onClick={() => void saveDownload(file)}
-                            disabled={online === false || savingId !== null || batchSaving || batchDeleting}
-                            title={`保存 ${file.name}`}
-                          >
-                            {savingId === file.id ? '保存中…' : savedPaths[file.id] ? '重新保存' : (<><Icon name="download" size={14} /> 保存</>)}
-                          </button>
-                          {savedPaths[file.id] && (
-                            <button
-                              type="button"
-                              className="btn btn-icon"
-                              onClick={() => openPath(savedPaths[file.id])}
-                              title="打开所在文件夹"
-                              aria-label="打开所在文件夹"
-                            >
-                              <Icon name="folder" size={14} />
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <a
-                          className={`btn btn-small btn-ghost${online === false ? ' is-disabled' : ''}`}
-                          href={downloadUrl(file)}
-                          download={file.name}
-                          aria-disabled={online === false}
-                          onClick={(event) => {
-                            if (online === false) {
-                              event.preventDefault();
-                              return;
-                            }
-                            setToast({ text: '已开始下载，请查看浏览器下载列表', kind: 'info' });
-                          }}
-                          title={`下载 ${file.name}`}
-                          aria-label={`下载 ${file.name}`}
-                        >
-                          <Icon name="download" size={14} />
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        className="btn btn-icon"
-                        onClick={() => void deleteFile(file.id)}
-                        disabled={online === false}
-                        title={`删除 ${file.name}`}
-                        aria-label={`删除 ${file.name}`}
-                      >
-                        <Icon name="trash" size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </article>
-
-        <div className={`progress-column${hasActiveTransfer ? '' : ' is-idle'}`}>
-          <RateCard
-            label="上传"
-            direction="upload"
-            speed={shownUploadSpeed}
-            peak={uploadPeak}
-            total={uploadTotal}
-            history={uploadHistory}
-            tone="blue"
-          >
-            {upload && uploadBlocks.map(({ key, leaving }) => (
-              <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
-                <div className="progress-block">
-                  <div className="progress-row">
-                    <span className="progress-title">
-                      {uploadIsBatch
-                        ? `总进度 · 第 ${upload.batchIndex || 1}/${upload.batchCount} 个`
-                        : upload.status === 'done'
-                          ? '已上传'
-                          : upload.status === 'cancelled'
-                            ? '已取消'
-                            : upload.status === 'error'
-                              ? '上传失败'
-                              : '上传中'}
-                    </span>
-                    <span className="progress-row-end">
-                      {!uploadIsBatch && <strong>{uploadPercent}%</strong>}
-                      {(upload.status === 'uploading' || upload.status === 'retrying') && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon-round"
-                          onClick={cancelUpload}
-                          aria-label="取消上传"
-                          title="取消上传"
-                        >
-                          <Icon name="close" size={14} />
-                        </button>
-                      )}
-                      {upload.status === 'error' && upload.file && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon-round"
-                          onClick={resumeUpload}
-                          aria-label="继续上传"
-                          title="继续上传"
-                        >
-                          <Icon name="refresh" size={14} />
-                        </button>
-                      )}
-                      {upload.status === 'cancelled' && upload.file && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon-round"
-                          onClick={resumeUpload}
-                          aria-label="重新上传"
-                          title="重新上传"
-                        >
-                          <Icon name="refresh" size={14} />
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                  <div className="progress-meta">
-                    <span>{formatBytes(uploadLoadedBytes)} / {formatBytes(uploadTotalBytes)}</span>
-                    {(upload.status === 'uploading' || upload.status === 'retrying') && <span>剩余 {formatDuration(uploadEta)}</span>}
-                    {upload.status === 'done' && (
-                      <span className="upload-done">
-                        <Icon name="check" size={13} /> {uploadPercent >= 100 ? '已上传' : '当前文件已上传'}
-                      </span>
-                    )}
-                    {upload.status === 'retrying' && !upload.checking && <span>连接中断，正在重试…</span>}
-                    {upload.checking && <span>正在核对服务器已保存进度…</span>}
-                    {upload.status === 'error' && <span className="text-error" role="alert">{upload.error || '上传失败'}</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </RateCard>
-
-          <RateCard
-            label="下载"
-            direction="download"
-            speed={shownDownloadSpeed}
-            peak={downloadPeak}
-            total={downloadTotal}
-            history={downloadHistory}
-            tone="green"
-          >
-            {downloadBlocks.map(({ key, leaving }) => {
-              const live = visibleLiveUpload ?? liveBlockRef.current;
-              const save = activeDownload ?? saveBlockRef.current;
-              const livePct = visibleLiveUpload ? livePercent : live ? percentOf(live.loaded, live.total) : 0;
-              const savePct = activeDownload ? downloadPercent : save ? percentOf(save.loaded, save.total) : 0;
-              return (
-                <div className={`reveal${leaving ? ' is-leaving' : ''}`} key={key} aria-hidden={leaving || undefined}>
-                  {key === 'receive' && live && (
-                    <div className="progress-block">
-                      <div className="progress-row">
-                        <span className="progress-title">接收中</span>
-                        <strong>{livePct}%</strong>
-                      </div>
-                      <div className="progress-meta">
-                        <span>{formatBytes(live.loaded)} / {formatBytes(live.total)}</span>
-                        {liveEta > 0 && <span>剩余 {formatDuration(liveEta)}</span>}
-                      </div>
-                    </div>
-                  )}
-                  {key === 'save' && save && (
-                    <div className="progress-block">
-                      <div className="progress-row">
-                        <span className="progress-title">保存中</span>
-                        <span className="progress-row-end">
-                          <strong>{savePct}%</strong>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-icon-round"
-                            onClick={cancelDownload}
-                            disabled={save.status === 'cancelling'}
-                            aria-label="取消保存"
-                            title="取消保存"
-                          >
-                            <Icon name={save.status === 'cancelling' ? 'refresh' : 'close'} size={14} className={save.status === 'cancelling' ? 'is-spinning' : undefined} />
-                          </button>
-                        </span>
-                      </div>
-                      <div className="progress-meta">
-                        <span>{formatBytes(save.loaded)} / {formatBytes(save.total)}</span>
-                        {downloadEta > 0 && <span>剩余 {formatDuration(downloadEta)}</span>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </RateCard>
-        </div>
+        <TransferProgress
+          upload={upload}
+          uploadBlocks={uploadBlocks}
+          uploadIsBatch={uploadIsBatch}
+          uploadPercent={uploadPercent}
+          uploadLoadedBytes={uploadLoadedBytes}
+          uploadTotalBytes={uploadTotalBytes}
+          uploadEta={uploadEta}
+          uploadHistory={uploadHistory}
+          shownUploadSpeed={shownUploadSpeed}
+          uploadPeak={uploadPeak}
+          uploadTotal={uploadTotal}
+          downloadBlocks={downloadBlocks}
+          activeDownload={activeDownload}
+          visibleLiveUpload={visibleLiveUpload}
+          liveFallback={liveBlockRef.current}
+          saveFallback={saveBlockRef.current}
+          livePercent={livePercent}
+          liveEta={liveEta}
+          downloadPercent={downloadPercent}
+          downloadEta={downloadEta}
+          downloadHistory={downloadHistory}
+          shownDownloadSpeed={shownDownloadSpeed}
+          downloadPeak={downloadPeak}
+          downloadTotal={downloadTotal}
+          hasActiveTransfer={hasActiveTransfer}
+          onCancelUpload={cancelUpload}
+          onResumeUpload={resumeUpload}
+          onCancelDownload={cancelDownload}
+        />
 
         <article className="card connection-card">
           <div className="card-head">
