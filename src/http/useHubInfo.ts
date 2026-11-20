@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchHubInfo, type HubInfo } from '../lib/hub';
+import { getHubInfoOrNull, type HubInfo } from '../api/infoApi';
 
 /**
  * 低频轮询 Hub 信息，用于生成手机扫码地址。
@@ -12,7 +12,7 @@ export function useHubInfo(): HubInfo | null {
     let alive = true;
 
     const load = async () => {
-      const data = await fetchHubInfo();
+      const data = await getHubInfoOrNull();
       if (alive && data) setInfo(data);
     };
 

@@ -1,4 +1,4 @@
-import { isTauriHost } from '../lib/hub';
+import { isTauriHost } from '../platform/runtime';
 
 const RELAY_STORAGE_KEY = 'filebridge_relay_base';
 export const DEFAULT_RELAY_BASE = 'http://127.0.0.1:43000';

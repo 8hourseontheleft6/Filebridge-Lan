@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { formatBytes, formatDuration } from '../lib/format';
-import { API_BASE, isTauriHost, listPhoneHosts, resolvePhoneBase, type HubInfo, type LanServiceStatus } from '../lib/hub';
+import { API_BASE, isTauriHost } from '../platform/runtime';
+import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress';
+import type { HubInfo } from '../api/infoApi';
+import type { LanServiceStatus } from '../features/network/types';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
@@ -12,7 +15,8 @@ import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpl
 import { usePresenceList } from '../lib/usePresence';
 import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
-import { NearbyComputers, type NearbyPeer } from './NearbyComputers';
+import { NearbyComputers } from './NearbyComputers';
+import type { NearbyPeer } from '../features/connection/types';
 import { ClipboardPanel } from './ClipboardPanel';
 
 const SESSION_STORAGE_KEY = 'filebridge_session_code';

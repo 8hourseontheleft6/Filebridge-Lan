@@ -3,9 +3,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { pickPhoneHost, listPhoneHosts } from './hub.ts';
+import { pickPhoneHost, listPhoneHosts, resolvePhoneBase } from './lanAddress.ts';
 
-const FIXTURE = path.resolve(import.meta.dirname, '..', '..', 'scripts', 'fixtures', 'lan-ips.json');
+const FIXTURE = path.resolve(
+  import.meta.dirname,
+  '..',
+  '..',
+  '..',
+  'scripts',
+  'fixtures',
+  'lan-ips.json',
+);
 
 test('uses the Hub-provided private Wi-Fi address', () => {
   assert.equal(pickPhoneHost(['192.168.2.53', '192.168.56.1']), '192.168.2.53');
@@ -49,10 +57,9 @@ test('alternative addresses keep the Hub order and push VirtualBox last', () => 
   assert.deepEqual(listPhoneHosts(['127.0.0.1']), []);
 });
 
-test('resolvePhoneBase builds the QR URL from the real Hub address', async () => {
-  const { resolvePhoneBase } = await import('./hub.ts');
+test('resolvePhoneBase builds the QR URL from the real Hub address', () => {
   globalThis.window = { location: { hostname: 'tauri.localhost', port: '', protocol: 'http:' } };
-  const hub = (ips) => ({ name: 'Filebridge-Lan Hub', version: '1.6.1-preview.1', port: 42080, ips, files: 0 });
+  const hub = (ips) => ({ ips, port: 42080 });
   try {
     assert.equal(resolvePhoneBase(hub(['192.168.2.53'])), 'http://192.168.2.53:42080');
     // A stale Hub that still lists the VirtualBox address first must not change the QR.
