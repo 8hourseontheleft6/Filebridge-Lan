@@ -59,7 +59,7 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 
 | 文件 | 行数 | 混合的职责 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 1432 | SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2、上传已于 E3、下载已于 E4 迁出） |
+| `src/http/HttpTransfer.tsx` | 1275 | 速率统计、大量 UI 与页面编排（session/pairing 已于 E1、文件列表/选择/删除已于 E2、上传已于 E3、下载已于 E4、连接/SSE 已于 E5 迁出） |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
 
 已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
@@ -133,19 +133,36 @@ HttpTransfer 现在只调用 `useSessionController` 暴露的状态与 actions�
 同一提交移除了 HttpTransfer 对 `@tauri-apps/api/core` / `@tauri-apps/api/event` 的直接 import：
 allowlist 从 6 条规则降到 **3 条**（均为 E5 范围）。
 
+已迁移（阶段 E5）：
+
+| 项 | 迁移前 | 迁移后 |
+|---|---|---|
+| `src/http/HttpTransfer.tsx` | 1432 | **1275** |
+| 连接探针 / SSE / 在线状态 / 接收进度 | 内联在组件中（`/api/info` fetch、EventSource、heartbeat watchdog、ConnectionMonitor、liveUpload、5s 无事件清理） | `features/connection/{useHubConnection,hubEventService,types}.ts` + `api/infoApi` / `filesApi.fileEventsUrl` |
+
+`src/features/connection/useHubConnection.ts` 职责：online/offline 状态、2s files 探针预算、
+`/api/info`（3s）加载、3s 列表轮询、SSE 生命周期（1s heartbeat watchdog、5s 无事件清理）、
+接收进度事件与 toast、`clearLiveUploadFor`。`hubEventService` 只做 SSE JSON 解析。
+HttpTransfer 保留页面编排、速率统计与 UI；未改 SSE endpoint、heartbeat 间隔与格式、探测成功/
+失败阈值、离线提示或配对恢复行为。
+
+E5 完成后 HttpTransfer 不再直接使用 `fetch` / `API_BASE` / `EventSource` / Tauri import：
+**architecture allowlist 归零（0 个文件）**。
+
 删除的旧文件：`src/http/connect.ts`（并入 `src/api/connectionApi.ts`）、`src/lib/hub.ts`
 （运行环境判断与 `API_BASE` → `platform/runtime.ts`；`fetchHubInfo` → `api/infoApi.ts`；
 手机地址函数 → `features/network/lanAddress.ts`）。
 
 ### 3.3 临时例外清单（Architecture allowlist）
 
-`scripts/check-architecture.mjs` 中的 `ALLOWLIST` 是唯一合法的例外来源。当前 **1 个文件**（阶段 E 目标）：
+`scripts/check-architecture.mjs` 中的 `ALLOWLIST` 是唯一合法的例外来源。当前 **0 个文件**（无例外）：
 
 ```text
-src/http/HttpTransfer.tsx       http-fetch, api-base, event-source
+（空）
 ```
 
-规则：**只减不增**。每迁移一个文件，必须在同一提交里删掉对应 allowlist 条目；新增条目必须在提交说明里给出理由。
+`src/http/HttpTransfer.tsx` 已于 E5 移出例外清单。规则：**只减不增**。新增条目必须在提交说明里
+给出理由，并在后续阶段移除。
 
 ## 4. 迁移阶段
 
@@ -155,7 +172,7 @@ src/http/HttpTransfer.tsx       http-fetch, api-base, event-source
 | B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 已完成 |
 | C | 剪贴板纵向切片（api/service/controller + 面板改造） | 已完成（UI 四态回归待补） |
 | D | 设置、网络门禁、连接模块 | 已完成 |
-| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1、E2、E3、E4 已完成；E5 SSE 为下一步 |
+| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1–E5 已完成，allowlist 归零；E6 UI 精简为下一步 |
 | F | Relay 模块 | 待开始 |
 | G | Rust Hub 服务化 | 待开始 |
 | H | Node Hub 服务化 + 双端契约 fixture | 待开始 |

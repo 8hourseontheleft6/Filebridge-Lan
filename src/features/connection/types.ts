@@ -22,3 +22,29 @@ export interface ConnectOutcome {
   error?: string;
   clearPending: boolean;
 }
+
+/** Receive-only upload progress carried over the SSE stream. */
+export interface LiveUpload {
+  id: string;
+  name: string;
+  loaded: number;
+  total: number;
+  startedAt: number;
+}
+
+export interface UploadEventPayload {
+  id: string;
+  name: string;
+  loaded: number;
+  total: number;
+  status: 'started' | 'progress' | 'completed' | 'failed';
+}
+
+/** Result of the files-list probe used for online/offline transitions. */
+export type HubProbeKind = 'ok' | 'unauthorized' | 'error' | 'skipped';
+
+export interface HubToast {
+  text: string;
+  kind: 'success' | 'error' | 'info';
+  path?: string;
+}

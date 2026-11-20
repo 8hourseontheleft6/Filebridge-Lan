@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatBytes, formatDuration } from '../lib/format';
-import { API_BASE, isIosDevice, isTauriHost } from '../platform/runtime';
+import { isIosDevice, isTauriHost } from '../platform/runtime';
 import { tauri } from '../platform/tauri';
 import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress';
-import type { HubInfo } from '../api/infoApi';
 import type { LanServiceStatus } from '../features/network/types';
 import { useSessionController } from '../features/session/useSessionController';
 import { useFilesController } from '../features/files/useFilesController';
@@ -11,6 +10,8 @@ import type { HubFile } from '../features/files/types';
 import { useUploadController } from '../features/uploads/useUploadController';
 import { useDownloadController } from '../features/downloads/useDownloadController';
 import type { ActiveDownload } from '../features/downloads/types';
+import { useHubConnection } from '../features/connection/useHubConnection';
+import type { LiveUpload } from '../features/connection/types';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
@@ -18,7 +19,6 @@ import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, shouldShowLiveUpload } from '../lib/uploadOffsets';
 import { usePresenceList } from '../lib/usePresence';
-import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers } from './NearbyComputers';
 import type { NearbyPeer } from '../features/connection/types';
@@ -33,22 +33,6 @@ interface ToastState {
   text: string;
   kind: 'success' | 'error' | 'info';
   path?: string;
-}
-
-interface UploadEventPayload {
-  id: string;
-  name: string;
-  loaded: number;
-  total: number;
-  status: 'started' | 'progress' | 'completed' | 'failed';
-}
-
-interface LiveUpload {
-  id: string;
-  name: string;
-  loaded: number;
-  total: number;
-  startedAt: number;
 }
 
 function fileExtension(name: string): string {
@@ -76,20 +60,11 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const publicPaused = lanService?.gate === 'public_blocked' || noUsableNetwork || networkBlocked;
   const serviceUnavailable = desktop && lanService?.running === false && !publicPaused;
   const [pausedError, setPausedError] = useState('');
-  const [online, setOnline] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (serviceUnavailable) setOnline(false);
-  }, [serviceUnavailable]);
-  const connectionMonitorRef = useRef(new ConnectionMonitor());
-  const sseLastEventAtRef = useRef(0);
-  const [info, setInfo] = useState<HubInfo | null>(null);
+  const setOnlineRef = useRef<(value: boolean | null) => void>(() => {});
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [dropLeaving, setDropLeaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [liveUpload, setLiveUpload] = useState<LiveUpload | null>(null);
-  const liveUploadEventAtRef = useRef(0);
   const [showCode, setShowCode] = useState(false);
   const [pairingOpen, setPairingOpen] = useState(false);
   const [refreshSpinning, setRefreshSpinning] = useState(false);
@@ -109,7 +84,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const session = useSessionController({
     desktop,
     localHubAccess,
-    onRecovered: () => setOnline(true),
+    onRecovered: () => setOnlineRef.current(true),
   });
   const {
     sessionCode,
@@ -131,6 +106,18 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     batchDeleting,
     allSelected,
   } = filesState;
+
+  const hub = useHubConnection({
+    token,
+    sessionReady,
+    desktop,
+    publicPaused,
+    serviceUnavailable,
+    probeFiles: (timeoutMs) => filesState.refresh({ timeoutMs }).then((result) => result.kind),
+    onToast: setToast,
+  });
+  const { online, setOnline, info, loadInfo, refresh, liveUpload, clearLiveUploadFor } = hub;
+  setOnlineRef.current = setOnline;
 
   const inputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -163,30 +150,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [peerFrame]);
-
-  // Probe wrapper: the list itself lives in the files controller; the
-  // connection-monitor bookkeeping stays here until the SSE slice (E5).
-  const refresh = useCallback(async () => {
-    if (!token || !sessionReady) return;
-    const monitor = connectionMonitorRef.current;
-    if (!monitor.beginProbe()) return;
-    // Keep the pre-E2 probe budget (2s abort) so online/offline detection
-    // timing is unchanged; the monitor bookkeeping still lives here until E5.
-    const result = await filesState.refresh({ timeoutMs: PROBE_TIMEOUT_MS });
-    if (result.kind === 'unauthorized') {
-      monitor.completeProbe(true);
-      return;
-    }
-    if (result.kind === 'ok') {
-      const wasOffline = monitor.isOnline === false;
-      monitor.completeProbe(true);
-      if (wasOffline) sseLastEventAtRef.current = Date.now();
-      setOnline(true);
-      return;
-    }
-    const outcome = monitor.completeProbe(false);
-    if (outcome.changed && outcome.offline) setOnline(false);
-  }, [filesState.refresh, sessionReady, token]);
 
   const uploadsState = useUploadController({
     token,
@@ -244,113 +207,15 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   }, []);
 
   useEffect(() => {
-    if (!online || !token || !sessionReady) return;
-    const source = new EventSource(
-      `${API_BASE}/api/events?token=${encodeURIComponent(token)}`
-    );
-    source.onopen = () => {
-      sseLastEventAtRef.current = Date.now();
-      connectionMonitorRef.current.noteHeartbeat();
-      setOnline(true);
-    };
-    source.onerror = () => {
-      // EventSource reconnects automatically, but do not wait for the user to
-      // try an upload. Probe immediately; the heartbeat watchdog will mark the
-      // host offline if the stream stays silent.
-      sseLastEventAtRef.current = 0;
-      void refresh();
-    };
-    const onHeartbeat = () => {
-      sseLastEventAtRef.current = Date.now();
-      connectionMonitorRef.current.noteHeartbeat();
-    };
-    const onUpload = (event: Event) => {
-      sseLastEventAtRef.current = Date.now();
-      connectionMonitorRef.current.noteHeartbeat();
-      try {
-        const data = JSON.parse((event as MessageEvent).data) as UploadEventPayload;
-        if (data.status === 'started' || data.status === 'progress') {
-          liveUploadEventAtRef.current = Date.now();
-          setLiveUpload((prev) => ({
-            id: data.id,
-            name: data.name,
-            loaded: data.loaded,
-            total: data.total || (prev?.id === data.id ? prev.total : 0),
-            startedAt: prev?.id === data.id ? prev.startedAt : Date.now(),
-          }));
-        } else if (data.status === 'completed') {
-          liveUploadEventAtRef.current = 0;
-          setLiveUpload(null);
-          setToast({ text: `已接收 ${data.name}`, kind: 'success' });
-          void refresh();
-        } else if (data.status === 'failed') {
-          liveUploadEventAtRef.current = 0;
-          setLiveUpload(null);
-          setToast({ text: `接收失败：${data.name}`, kind: 'error' });
-        }
-      } catch {
-        // 忽略格式不完整的事件
-      }
-    };
-    source.addEventListener('upload', onUpload);
-    source.addEventListener('heartbeat', onHeartbeat);
-    return () => {
-      source.removeEventListener('upload', onUpload);
-      source.removeEventListener('heartbeat', onHeartbeat);
-      source.close();
-    };
-  }, [online, sessionReady, token, refresh]);
-
-  useEffect(() => {
-    if (!token || !sessionReady || online !== true) return;
-    const timer = window.setInterval(() => {
-      if (!isHeartbeatStale(sseLastEventAtRef.current, Date.now(), HEARTBEAT_STALE_MS)) return;
-      const outcome = connectionMonitorRef.current.heartbeatTimedOut();
-      if (outcome.changed) setOnline(false);
-      void refresh();
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [online, refresh, sessionReady, token]);
-
-  useEffect(() => {
     if (!liveUpload || !upload?.uploadId) return;
-    if (liveUpload.id === upload.uploadId) {
-      liveUploadEventAtRef.current = 0;
-      setLiveUpload(null);
-    }
-  }, [liveUpload, upload?.uploadId]);
+    if (liveUpload.id === upload.uploadId) clearLiveUploadFor(upload.uploadId);
+  }, [clearLiveUploadFor, liveUpload, upload?.uploadId]);
 
   useEffect(() => {
     if (!upload?.uploadId) return;
     if (upload.status !== 'done' && upload.status !== 'error' && upload.status !== 'cancelled') return;
-    setLiveUpload((prev) => {
-      if (prev?.id !== upload.uploadId) return prev;
-      liveUploadEventAtRef.current = 0;
-      return null;
-    });
-  }, [upload?.status, upload?.uploadId]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (liveUploadEventAtRef.current && Date.now() - liveUploadEventAtRef.current > 5000) {
-        liveUploadEventAtRef.current = 0;
-        setLiveUpload(null);
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const loadInfo = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/info`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as HubInfo;
-      setInfo(data);
-      setOnline(true);
-    } catch {
-      setOnline(false);
-    }
-  }, []);
+    clearLiveUploadFor(upload.uploadId);
+  }, [clearLiveUploadFor, upload?.status, upload?.uploadId]);
 
   const openNetworkSettings = useCallback(async () => {
     setPausedError('');
@@ -360,19 +225,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
       setPausedError(`打开网络设置失败：${reason instanceof Error ? reason.message : String(reason)}`);
     }
   }, []);
-
-  // Public pause is a security state, not a service failure. When the gate opens
-  // again, re-probe the Hub instead of showing a stale "service unavailable" card.
-  useEffect(() => {
-    if (publicPaused || !sessionReady || !desktop) return;
-    void loadInfo();
-  }, [desktop, loadInfo, publicPaused, sessionReady]);
-
-  useEffect(() => {
-    if (publicPaused || !desktop || online !== false) return;
-    const timer = window.setInterval(() => { void loadInfo(); }, 3000);
-    return () => window.clearInterval(timer);
-  }, [desktop, loadInfo, online, publicPaused]);
 
   const unlock = useCallback(async () => {
     // The controller owns validation/pairing/persistence; the file probe below
@@ -391,15 +243,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     const rotated = await session.rotatePairing();
     if (rotated) filesState.reset();
   }, [filesState.reset, session.rotatePairing]);
-
-  useEffect(() => {
-    void loadInfo();
-    void refresh();
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [loadInfo, refresh]);
 
   const handleFiles = useCallback(async (fileList: FileList | File[]) => {
     const selected = Array.from(fileList);

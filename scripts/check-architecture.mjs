@@ -27,13 +27,7 @@ const SRC = path.join(ROOT, 'src');
  * Legacy exceptions: file -> rules that are temporarily tolerated.
  * Remove entries in the same commit that migrates the file.
  */
-const ALLOWLIST = {
-  'src/http/HttpTransfer.tsx': [
-    'http-fetch',
-    'api-base',
-    'event-source',
-  ],
-};
+const ALLOWLIST = {};
 
 const RULES = [
   {
