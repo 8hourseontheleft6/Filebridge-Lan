@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { invoke } from '@tauri-apps/api/core';
 import { HttpTransfer } from './http/HttpTransfer';
 import { HostApprovalGate } from './http/HostApprovalGate';
 import { RelayTransfer } from './relay/RelayTransfer';
@@ -9,24 +8,11 @@ import { NetworkWarning } from './components/NetworkWarning';
 import { Icon } from './components/Icon';
 import { BrandMark } from './components/BrandMark';
 import { isRelayHosted, parseRelayHash } from './relay/api';
-import { isTauriHost } from './lib/hub';
-import type { LanServiceStatus } from './lib/hub';
+import { isTauriHost } from './platform/runtime';
+import { useNetworkGate } from './features/network/useNetworkGate';
 
 type TransferMode = 'lan' | 'relay';
 type AppView = 'transfer' | 'settings';
-
-export interface NetworkProfile {
-  name: string;
-  category: string;
-  label: string;
-}
-
-export interface NetworkProfileStatus {
-  checked: boolean;
-  compliant: boolean;
-  networks: NetworkProfile[];
-  error?: string | null;
-}
 
 function BackToTop() {
   const [visible, setVisible] = useState(false);
@@ -60,58 +46,12 @@ export default function App() {
   const helpCloseTimerRef = useRef<number | null>(null);
   const helpDialogRef = useRef<HTMLElement | null>(null);
   const helpTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [networkStatus, setNetworkStatus] = useState<NetworkProfileStatus | null>(null);
-  const [lanServiceStatus, setLanServiceStatus] = useState<LanServiceStatus | null>(null);
-  const [networkChecking, setNetworkChecking] = useState(false);
-  const [networkDismissed, setNetworkDismissed] = useState(false);
-  const gateSignatureRef = useRef('');
   const relayLink = parseRelayHash();
   const relayOnly = isRelayHosted();
   const desktopApp = isTauriHost();
+  const gate = useNetworkGate({ desktop: desktopApp });
   const [mode, setMode] = useState<TransferMode>(relayOnly ? 'relay' : 'lan');
   const activeMode: TransferMode = relayOnly ? 'relay' : mode;
-
-  const checkNetwork = useCallback(async () => {
-    if (!isTauriHost()) return;
-    setNetworkChecking(true);
-    try {
-      const status = await invoke<NetworkProfileStatus>('network_profile_status');
-      const signature = JSON.stringify([
-        status.checked,
-        status.compliant,
-        status.error,
-        status.networks,
-      ]);
-      if (gateSignatureRef.current !== signature) {
-        gateSignatureRef.current = signature;
-        setNetworkDismissed(false);
-      }
-      setNetworkStatus(status);
-    } catch (reason) {
-      setNetworkStatus({
-        checked: false,
-        compliant: false,
-        networks: [],
-        error: reason instanceof Error ? reason.message : String(reason),
-      });
-      setNetworkDismissed(false);
-    }
-
-    try {
-      const service = await invoke<LanServiceStatus>('lan_service_refresh');
-      setLanServiceStatus(service);
-    } catch {
-      setLanServiceStatus(null);
-    } finally {
-      setNetworkChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void checkNetwork();
-    const timer = window.setInterval(() => { void checkNetwork(); }, 5000);
-    return () => window.clearInterval(timer);
-  }, [checkNetwork]);
 
   useEffect(() => {
     const keepAtTop = () => {
@@ -335,8 +275,8 @@ export default function App() {
             <SettingsPanel onClose={() => setView('transfer')} />
           ) : activeMode === 'lan' ? (
             <HttpTransfer
-              lanService={lanServiceStatus}
-              networkBlocked={Boolean(networkStatus && !networkStatus.compliant)}
+              lanService={gate.lanServiceStatus}
+              networkBlocked={Boolean(gate.networkStatus && !gate.networkStatus.compliant)}
             />
           ) : (
             <RelayTransfer />
@@ -418,12 +358,12 @@ export default function App() {
 
       <HostApprovalGate />
       <BackToTop />
-      {isTauriHost() && networkStatus && !networkStatus.compliant && !networkDismissed && (
+      {desktopApp && gate.networkStatus && !gate.networkStatus.compliant && !gate.dismissed && (
         <NetworkWarning
-          status={networkStatus}
-          retrying={networkChecking}
-          onRetry={() => void checkNetwork()}
-          onClose={() => setNetworkDismissed(true)}
+          status={gate.networkStatus}
+          retrying={gate.networkChecking}
+          onRetry={() => void gate.refresh()}
+          onClose={gate.dismiss}
         />
       )}
     </div>

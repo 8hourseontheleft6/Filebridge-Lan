@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { NetworkProfileStatus } from '../App';
+import type { NetworkProfileStatus } from '../features/network/types';
 import { Icon } from './Icon';
 
 interface NetworkWarningProps {
