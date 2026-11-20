@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { PendingConnectRequest } from './connect';
+import type { PendingConnectRequest } from '../features/connection/types';
 import { Icon } from '../components/Icon';
 
 interface ConnectApprovalProps {
