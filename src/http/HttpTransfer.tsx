@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { formatBytes, formatDuration } from '../lib/format';
 import { API_BASE, isIosDevice, isTauriHost } from '../platform/runtime';
+import { tauri } from '../platform/tauri';
 import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress';
 import type { HubInfo } from '../api/infoApi';
 import type { LanServiceStatus } from '../features/network/types';
@@ -10,13 +9,14 @@ import { useSessionController } from '../features/session/useSessionController';
 import { useFilesController } from '../features/files/useFilesController';
 import type { HubFile } from '../features/files/types';
 import { useUploadController } from '../features/uploads/useUploadController';
+import { useDownloadController } from '../features/downloads/useDownloadController';
+import type { ActiveDownload } from '../features/downloads/types';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, shouldShowLiveUpload } from '../lib/uploadOffsets';
-import { makeTransferId } from '../lib/transferId';
 import { usePresenceList } from '../lib/usePresence';
 import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
@@ -29,31 +29,10 @@ function percentOf(loaded: number, total: number): number {
   return loaded > 0 ? 100 : 0;
 }
 
-interface SavedFile {
-  path: string;
-  existed: boolean;
-}
-
 interface ToastState {
   text: string;
   kind: 'success' | 'error' | 'info';
   path?: string;
-}
-
-interface DownloadProgressPayload {
-  transferId: string;
-  loaded: number;
-  total: number;
-  status: 'copying' | 'completed' | 'cancelled' | 'failed';
-}
-
-interface ActiveDownload {
-  transferId: string;
-  name: string;
-  loaded: number;
-  total: number;
-  startedAt: number;
-  status: 'copying' | 'cancelling';
 }
 
 interface UploadEventPayload {
@@ -108,11 +87,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [dropLeaving, setDropLeaving] = useState(false);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [batchSaving, setBatchSaving] = useState(false);
-  const [savedPaths, setSavedPaths] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [activeDownload, setActiveDownload] = useState<ActiveDownload | null>(null);
   const [liveUpload, setLiveUpload] = useState<LiveUpload | null>(null);
   const liveUploadEventAtRef = useRef(0);
   const [showCode, setShowCode] = useState(false);
@@ -189,37 +164,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     return () => window.removeEventListener('message', onMessage);
   }, [peerFrame]);
 
-  useEffect(() => {
-    if (!desktop) return;
-    let unlisten: UnlistenFn | undefined;
-    let disposed = false;
-
-    void listen<DownloadProgressPayload>('download-progress', (event) => {
-      const payload = event.payload;
-      if (payload.status === 'cancelled' || payload.status === 'failed') return;
-      setActiveDownload((prev) => {
-        if (!prev || prev.transferId !== payload.transferId) return prev;
-        return {
-          ...prev,
-          loaded: payload.loaded,
-          total: payload.total || prev.total,
-        };
-      });
-    })
-      .then((dispose) => {
-        if (disposed) dispose();
-        else unlisten = dispose;
-      })
-      .catch(() => {
-        // 事件监听失败不阻塞下载；命令仍会返回最终结果
-      });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [desktop]);
-
   // Probe wrapper: the list itself lives in the files controller; the
   // connection-monitor bookkeeping stays here until the SSE slice (E5).
   const refresh = useCallback(async () => {
@@ -251,6 +195,38 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     onError: setError,
   });
   const { upload, transport, chunkBytes, startUpload, resumeUpload, cancelUpload } = uploadsState;
+
+  const downloads = useDownloadController({
+    desktop,
+    token,
+    onToast: setToast,
+  });
+  const {
+    activeDownload,
+    savingId,
+    batchSaving,
+    savedPaths,
+    saveFile: saveFileAction,
+    saveSelected: saveSelectedAction,
+    cancelDownload,
+    openPath,
+    openDownloadDir,
+    downloadUrl,
+  } = downloads;
+
+  // Page-level guards keep the old batch-delete conflict rule; the controller
+  // guards its own saving/batch state.
+  const saveDownload = useCallback((file: HubFile) => {
+    if (batchDeleting) return;
+    void saveFileAction(file);
+  }, [batchDeleting, saveFileAction]);
+
+  const saveSelected = useCallback(() => {
+    if (batchDeleting) return;
+    const targets = files.filter((file) => selectedIds.has(file.id));
+    if (targets.length === 0) return;
+    void saveSelectedAction(targets);
+  }, [batchDeleting, files, saveSelectedAction, selectedIds]);
 
   const spinRefresh = useCallback(() => {
     if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
@@ -379,7 +355,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const openNetworkSettings = useCallback(async () => {
     setPausedError('');
     try {
-      await invoke('open_external', { url: 'ms-settings:network-wifi' });
+      await tauri.openExternal('ms-settings:network-wifi');
     } catch (reason) {
       setPausedError(`打开网络设置失败：${reason instanceof Error ? reason.message : String(reason)}`);
     }
@@ -494,112 +470,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     }
     await refresh();
   }, [batchDeleting, batchSaving, files, filesState.deleteSelected, refresh, selectedIds, session.expireToken]);
-
-  const openPath = useCallback((path: string) => {    if (!desktop) return;
-    void invoke('open_path', { path }).catch((reason) => {
-      setToast({ text: `打开文件夹失败：${String(reason)}`, kind: 'error' });
-    });
-  }, [desktop]);
-
-  const openDownloadDir = useCallback(() => {
-    if (!desktop) return;
-    void invoke('open_download_dir').catch((reason) => {
-      setToast({ text: `打开下载文件夹失败：${String(reason)}`, kind: 'error' });
-    });
-  }, [desktop]);
-
-  const saveOne = useCallback(async (file: HubFile) => {
-    if (!desktop) return;
-    const transferId = makeTransferId();
-    setActiveDownload({
-      transferId,
-      name: file.name,
-      loaded: 0,
-      total: file.size,
-      startedAt: Date.now(),
-      status: 'copying',
-    });
-    setSavingId(file.id);
-    try {
-      const result = await invoke<SavedFile>('save_download', { id: file.id, transferId });
-      setSavedPaths((prev) => ({ ...prev, [file.id]: result.path }));
-      return { result };
-    } catch (reason) {
-      const message = String(reason);
-      if (message.includes('已取消')) {
-        throw new Error('已取消保存');
-      }
-      throw new Error(`保存失败：${message}`);
-    } finally {
-      setSavingId(null);
-      setActiveDownload(null);
-    }
-  }, [desktop]);
-
-  const saveDownload = useCallback(async (file: HubFile) => {
-    if (!desktop || savingId || batchSaving || batchDeleting) return;
-    try {
-      const outcome = await saveOne(file);
-      if (outcome?.result) {
-        setToast({
-          text: outcome.result.existed
-            ? `文件已存在，未重复保存：${outcome.result.path}`
-            : `下载完成：${outcome.result.path}`,
-          kind: 'success',
-          path: outcome.result.path,
-        });
-      }
-    } catch (reason) {
-      setToast({
-        text: reason instanceof Error ? reason.message : String(reason),
-        kind: reason instanceof Error && reason.message === '已取消保存' ? 'info' : 'error',
-      });
-    }
-  }, [desktop, savingId, batchSaving, batchDeleting, saveOne]);
-
-  const saveSelected = useCallback(async () => {
-    if (savingId || batchSaving || batchDeleting) return;
-    const targets = files.filter((file) => selectedIds.has(file.id));
-    if (targets.length === 0) return;
-
-    if (!desktop) {
-      targets.forEach((file, index) => {
-        window.setTimeout(() => {
-          const anchor = document.createElement('a');
-          anchor.href = `${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`;
-          anchor.download = file.name;
-          document.body.appendChild(anchor);
-          anchor.click();
-          anchor.remove();
-        }, index * 350);
-      });
-      setToast({ text: `已开始下载 ${targets.length} 个文件，请查看浏览器下载列表`, kind: 'info' });
-      return;
-    }
-
-    setBatchSaving(true);
-    let completed = 0;
-    try {
-      for (const file of targets) {
-        const outcome = await saveOne(file);
-        if (outcome?.result.path) completed += 1;
-      }
-      setToast({ text: `已保存 ${completed}/${targets.length} 个文件`, kind: 'success' });
-    } catch (reason) {
-      setToast({ text: String(reason instanceof Error ? reason.message : reason), kind: 'error' });
-    } finally {
-      setBatchSaving(false);
-    }
-  }, [batchSaving, batchDeleting, desktop, files, saveOne, savingId, selectedIds, token]);
-
-  const cancelDownload = useCallback(() => {
-    if (!activeDownload || activeDownload.status === 'cancelling') return;
-    const { transferId } = activeDownload;
-    setActiveDownload((prev) => (prev ? { ...prev, status: 'cancelling' } : prev));
-    void invoke('cancel_download', { transferId }).catch((reason) => {
-      setToast({ text: `取消失败：${String(reason)}`, kind: 'error' });
-    });
-  }, [activeDownload]);
 
   const toggleSelected = filesState.toggleSelected;
 
@@ -1263,7 +1133,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
                       ) : (
                         <a
                           className={`btn btn-small btn-ghost${online === false ? ' is-disabled' : ''}`}
-                          href={`${API_BASE}/api/files/${file.id}?token=${encodeURIComponent(token)}`}
+                          href={downloadUrl(file)}
                           download={file.name}
                           aria-disabled={online === false}
                           onClick={(event) => {

@@ -29,9 +29,6 @@ const SRC = path.join(ROOT, 'src');
  */
 const ALLOWLIST = {
   'src/http/HttpTransfer.tsx': [
-    'tauri-invoke',
-    'tauri-core-import',
-    'tauri-event-import',
     'http-fetch',
     'api-base',
     'event-source',

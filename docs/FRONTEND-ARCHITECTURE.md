@@ -59,7 +59,7 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 
 | 文件 | 行数 | 混合的职责 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 1562 | 下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2、上传已于 E3 迁出） |
+| `src/http/HttpTransfer.tsx` | 1432 | SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2、上传已于 E3、下载已于 E4 迁出） |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
 
 已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
@@ -117,6 +117,22 @@ HttpTransfer 现在只调用 `useSessionController` 暴露的状态与 actions�
 409 offset 解析和状态查询；`HttpTransfer` 仍负责在线门禁、文件选择/拖拽、确认框、toast、
 速率统计和全部视觉，未改动上传协议、SHA-256 校验、`.part` 原子性、大小限制或 Safari 路径。
 
+已迁移（阶段 E4）：
+
+| 项 | 迁移前 | 迁移后 |
+|---|---|---|
+| `src/http/HttpTransfer.tsx` | 1562 | **1432** |
+| 桌面保存 / 进度 / 取消 / 打开目录 / 浏览器下载链接 | 内联在组件中（`save_download`、`cancel_download`、`download-progress` listen、350ms 批量 anchor、toast 文案） | `features/downloads/{downloadService,useDownloadController,types}.ts` |
+
+`src/features/downloads/` 职责：`activeDownload` / `savingId` / `batchSaving` / `savedPaths` 状态、
+`download-progress` 订阅（仅桌面）、`save_download` / `cancel_download` / `open_path` /
+`open_download_dir` 经 `platform/tauri` 调用、批量保存顺序与首错即停、已存在/取消/失败 toast 文案、
+浏览器批量下载 350ms 间隔 anchor 与 `fileDownloadUrl`。HttpTransfer 只保留进度卡、速率统计、
+按钮禁用与视觉；Range 下载、保存路径与 `existed` 语义、Tauri 命令参数均未改。
+
+同一提交移除了 HttpTransfer 对 `@tauri-apps/api/core` / `@tauri-apps/api/event` 的直接 import：
+allowlist 从 6 条规则降到 **3 条**（均为 E5 范围）。
+
 删除的旧文件：`src/http/connect.ts`（并入 `src/api/connectionApi.ts`）、`src/lib/hub.ts`
 （运行环境判断与 `API_BASE` → `platform/runtime.ts`；`fetchHubInfo` → `api/infoApi.ts`；
 手机地址函数 → `features/network/lanAddress.ts`）。
@@ -126,8 +142,7 @@ HttpTransfer 现在只调用 `useSessionController` 暴露的状态与 actions�
 `scripts/check-architecture.mjs` 中的 `ALLOWLIST` 是唯一合法的例外来源。当前 **1 个文件**（阶段 E 目标）：
 
 ```text
-src/http/HttpTransfer.tsx       tauri-invoke, tauri-core-import, tauri-event-import,
-                                http-fetch, api-base, event-source
+src/http/HttpTransfer.tsx       http-fetch, api-base, event-source
 ```
 
 规则：**只减不增**。每迁移一个文件，必须在同一提交里删掉对应 allowlist 条目；新增条目必须在提交说明里给出理由。
@@ -140,7 +155,7 @@ src/http/HttpTransfer.tsx       tauri-invoke, tauri-core-import, tauri-event-imp
 | B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 已完成 |
 | C | 剪贴板纵向切片（api/service/controller + 面板改造） | 已完成（UI 四态回归待补） |
 | D | 设置、网络门禁、连接模块 | 已完成 |
-| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1、E2、E3 已完成；E4 download 为下一步 |
+| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1、E2、E3、E4 已完成；E5 SSE 为下一步 |
 | F | Relay 模块 | 待开始 |
 | G | Rust Hub 服务化 | 待开始 |
 | H | Node Hub 服务化 + 双端契约 fixture | 待开始 |
