@@ -59,7 +59,7 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 
 | 文件 | 行数 | 混合的职责 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 2043 | 上传队列、XHR/Fetch 分块、offset 续传、重试/取消、下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2 迁出） |
+| `src/http/HttpTransfer.tsx` | 1562 | 下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2、上传已于 E3 迁出） |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
 
 已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
@@ -104,6 +104,19 @@ HttpTransfer 现在只调用 `useSessionController` 暴露的状态与 actions�
 不触发会话过期。HttpTransfer 只保留展示层（确认框、toast、刷新动画）
 和连接探针包装（`connectionMonitor` / `sseLastEventAt` 属 E5 SSE 范围）。
 
+已迁移（阶段 E3）：
+
+| 项 | 迁移前 | 迁移后 |
+|---|---|---|
+| `src/http/HttpTransfer.tsx` | 2043 | **1562** |
+| 上传队列 / 分块传输 / 续传 / 重试 / 取消 | 内联在组件中（XHR 与 Safari fetch+Blob 两条传输、offset 409 校正、4 次重试、最终零长度分块、诊断轮询、取消 DELETE） | `features/uploads/{uploadsService,useUploadController,types}.ts` + `api/uploadApi.ts` 的 `uploadChunkXhr` / `uploadChunkFetch` |
+
+`src/features/uploads/` 职责：单一上传状态、批次队列与进度元数据、per-file retry/backoff、
+服务端 offset 对账（409 与失败后均以服务端为准）、XHR 401 触发会话过期（fetch 路径保持原行为）、
+取消与恢复决策、2s 诊断轮询。`api/uploadApi.ts` 只负责两条分块传输、URL/header/timeout（90s）、
+409 offset 解析和状态查询；`HttpTransfer` 仍负责在线门禁、文件选择/拖拽、确认框、toast、
+速率统计和全部视觉，未改动上传协议、SHA-256 校验、`.part` 原子性、大小限制或 Safari 路径。
+
 删除的旧文件：`src/http/connect.ts`（并入 `src/api/connectionApi.ts`）、`src/lib/hub.ts`
 （运行环境判断与 `API_BASE` → `platform/runtime.ts`；`fetchHubInfo` → `api/infoApi.ts`；
 手机地址函数 → `features/network/lanAddress.ts`）。
@@ -127,7 +140,7 @@ src/http/HttpTransfer.tsx       tauri-invoke, tauri-core-import, tauri-event-imp
 | B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 已完成 |
 | C | 剪贴板纵向切片（api/service/controller + 面板改造） | 已完成（UI 四态回归待补） |
 | D | 设置、网络门禁、连接模块 | 已完成 |
-| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1、E2 已完成；E3 upload 为下一步 |
+| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1、E2、E3 已完成；E4 download 为下一步 |
 | F | Relay 模块 | 待开始 |
 | G | Rust Hub 服务化 | 待开始 |
 | H | Node Hub 服务化 + 双端契约 fixture | 待开始 |

@@ -2,31 +2,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { formatBytes, formatDuration } from '../lib/format';
-import { API_BASE, isTauriHost } from '../platform/runtime';
+import { API_BASE, isIosDevice, isTauriHost } from '../platform/runtime';
 import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress';
 import type { HubInfo } from '../api/infoApi';
 import type { LanServiceStatus } from '../features/network/types';
 import { useSessionController } from '../features/session/useSessionController';
 import { useFilesController } from '../features/files/useFilesController';
 import type { HubFile } from '../features/files/types';
+import { useUploadController } from '../features/uploads/useUploadController';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
 import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
-import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
+import { confirmedPercent, shouldShowLiveUpload } from '../lib/uploadOffsets';
+import { makeTransferId } from '../lib/transferId';
 import { usePresenceList } from '../lib/usePresence';
 import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers } from './NearbyComputers';
 import type { NearbyPeer } from '../features/connection/types';
 import { ClipboardPanel } from './ClipboardPanel';
-
-const UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
-const IOS_UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
-const UPLOAD_CHUNK_TIMEOUT_MS = 90_000;
-
-type UploadTransport = 'xhr-blob' | 'fetch-blob';
 
 function percentOf(loaded: number, total: number): number {
   if (total > 0) return Math.min(100, Math.round((loaded / total) * 100));
@@ -76,96 +72,10 @@ interface LiveUpload {
   startedAt: number;
 }
 
-function makeTransferId(): string {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
-    const value = Math.floor(Math.random() * 16);
-    const digit = char === 'x' ? value : (value & 0x3) | 0x8;
-    return digit.toString(16);
-  });
-}
-
-interface ServerChunkDiag {
-  remoteIp: string;
-  offset: number;
-  total: number;
-  contentLength: number | null;
-  transferEncoding: string | null;
-  expect: string | null;
-  bodyRead: number;
-  partSize: number;
-  bodyState: string;
-  lastError: string | null;
-  startedAtMs: number;
-  durationMs: number;
-  statusCode: number | null;
-}
-
-interface UploadState {
-  name: string;
-  loaded: number;
-  total: number;
-  startedAt: number;
-  status: 'uploading' | 'retrying' | 'done' | 'error' | 'cancelled';
-  error?: string;
-  file?: File;
-  uploadId?: string;
-  offset?: number;
-  confirmedOffset?: number;
-  inFlightLoaded?: number;
-  checking?: boolean;
-  serverDiag?: ServerChunkDiag | null;
-  transport?: string;
-  requestPhase?: string;
-  batchIndex?: number;
-  batchCount?: number;
-  batchTotal?: number;
-  batchBase?: number;
-  batchStartedAt?: number;
-}
-
-interface UploadBatch {
-  index: number;
-  count: number;
-  totalBytes: number;
-  baseBytes: number;
-  startedAt: number;
-}
-
-interface UploadQueue {
-  files: File[];
-  index: number;
-  completedBytes: number;
-  totalBytes: number;
-  startedAt: number;
-}
-
-class UploadOffsetError extends Error {
-  offset: number;
-
-  constructor(offset: number) {
-    super(`服务器已有 ${offset} 字节`);
-    this.offset = offset;
-  }
-}
-
-class UploadCancelledError extends Error {
-  constructor() {
-    super('已取消');
-  }
-}
-
 function fileExtension(name: string): string {
   const dot = name.lastIndexOf('.');
   const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
   return ext ? ext.slice(0, 4).toUpperCase() : 'FILE';
-}
-
-function isIosDevice(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent;
-  return /iPad|iPhone|iPod/.test(ua)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
 function needsSequentialFilePicker(): boolean {
@@ -195,7 +105,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const connectionMonitorRef = useRef(new ConnectionMonitor());
   const sseLastEventAtRef = useRef(0);
   const [info, setInfo] = useState<HubInfo | null>(null);
-  const [upload, setUpload] = useState<UploadState | null>(null);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [dropLeaving, setDropLeaving] = useState(false);
@@ -251,12 +160,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const inputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [transport, setTransport] = useState<UploadTransport>(() => (isIosDevice() ? 'fetch-blob' : 'xhr-blob'));
-  const fetchAbortRef = useRef<AbortController | null>(null);
   const needsPicker = needsSequentialFilePicker();
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
-  const cancelUploadRef = useRef(false);
-  const batchQueueRef = useRef<UploadQueue | null>(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -339,6 +243,14 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     const outcome = monitor.completeProbe(false);
     if (outcome.changed && outcome.offline) setOnline(false);
   }, [filesState.refresh, sessionReady, token]);
+
+  const uploadsState = useUploadController({
+    token,
+    onUnauthorized: () => session.expireToken('授权已过期，请重新配对'),
+    onRefreshList: refresh,
+    onError: setError,
+  });
+  const { upload, transport, chunkBytes, startUpload, resumeUpload, cancelUpload } = uploadsState;
 
   const spinRefresh = useCallback(() => {
     if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
@@ -513,394 +425,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     return () => window.clearInterval(timer);
   }, [loadInfo, refresh]);
 
-  const queryUploadOffset = useCallback(async (id: string): Promise<{ offset: number; complete: boolean; file?: HubFile; diagnostics?: ServerChunkDiag | null }> => {
-    const response = await fetch(`${API_BASE}/api/upload/chunk/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
-    });
-    if (!response.ok) throw new Error('无法核对服务器已保存进度');
-    const data = (await response.json()) as { offset?: number; complete?: boolean; file?: HubFile; diagnostics?: ServerChunkDiag | null };
-    return {
-      offset: Number(data.offset || 0),
-      complete: Boolean(data.complete),
-      file: data.file,
-      diagnostics: data.diagnostics ?? null,
-    };
-  }, [token]);
-
-  const uploadChunk = useCallback((file: File, id: string, offset: number): Promise<{
-    offset: number;
-    complete: boolean;
-    file?: HubFile;
-  }> => {
-    if (!token) return Promise.reject(new Error('缺少访问授权'));
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      setUpload((prev) => prev ? { ...prev, requestPhase: 'created' } : prev);
-      const chunkSize = isIosDevice() ? IOS_UPLOAD_CHUNK_SIZE : UPLOAD_CHUNK_SIZE;
-      const end = Math.min(offset + chunkSize, file.size);
-      const chunk = file.slice(offset, end);
-      xhr.open('POST', `${API_BASE}/api/upload/chunk?name=${encodeURIComponent(file.name)}&id=${encodeURIComponent(id)}&offset=${offset}&total=${file.size}`);
-      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.timeout = UPLOAD_CHUNK_TIMEOUT_MS;
-
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
-        const inFlight = Math.min(file.size, offset + event.loaded);
-        setUpload((prev) => prev ? {
-          ...prev,
-          loaded: inFlight,
-          inFlightLoaded: inFlight,
-          total: file.size,
-        } : prev);
-      };
-
-      xhr.upload.onload = () => {
-        setUpload((prev) => prev ? { ...prev, requestPhase: 'upload-complete' } : prev);
-      };
-
-      xhr.onload = () => {
-        xhrRef.current = null;
-        setUpload((prev) => prev ? { ...prev, requestPhase: 'response-received', loaded: Math.max(prev.loaded, end), inFlightLoaded: Math.max(prev.inFlightLoaded || 0, end) } : prev);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText) as { offset: number; complete: boolean; file?: HubFile });
-          } catch {
-            reject(new Error('服务器返回了无效 JSON'));
-          }
-          return;
-        }
-        if (xhr.status === 401) {
-          session.expireToken('授权已过期，请重新配对');
-        }
-        if (xhr.status === 409) {
-          try {
-            const parsed = JSON.parse(xhr.responseText) as { offset?: number };
-            reject(new UploadOffsetError(Number(parsed.offset || 0)));
-            return;
-          } catch {
-            // fall through to a normal retryable error
-          }
-        }
-        let message = xhr.status === 413
-          ? '文件超过 Hub 限制'
-          : '上传中断，可继续上传';
-        try {
-          const parsed = JSON.parse(xhr.responseText);
-          if (parsed?.error) message = parsed.error;
-        } catch {
-          // ignore
-        }
-        reject(new Error(message));
-      };
-
-      xhr.onerror = () => {
-        xhrRef.current = null;
-        reject(new Error('网络中断，进度已保留，可继续上传'));
-      };
-      xhr.ontimeout = () => {
-        xhrRef.current = null;
-        reject(new Error('上传分块超时，进度已保留，可继续上传'));
-      };
-      xhr.onabort = () => {
-        xhrRef.current = null;
-        reject(new UploadCancelledError());
-      };
-
-      xhrRef.current = xhr;
-      xhr.send(chunk);
-    });
-  }, [token]);
-
-  const uploadChunkFetch = useCallback(async (file: File, id: string, offset: number): Promise<{
-    offset: number;
-    complete: boolean;
-    file?: HubFile;
-  }> => {
-    const chunkSize = isIosDevice() ? IOS_UPLOAD_CHUNK_SIZE : UPLOAD_CHUNK_SIZE;
-    const end = Math.min(offset + chunkSize, file.size);
-    const chunk = file.slice(offset, end);
-    const controller = new AbortController();
-    fetchAbortRef.current = controller;
-    setUpload((prev) => prev ? {
-      ...prev,
-      requestPhase: 'uploading',
-    } : prev);
-    const timeout = window.setTimeout(() => controller.abort(), UPLOAD_CHUNK_TIMEOUT_MS);
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/upload/chunk?name=${encodeURIComponent(file.name)}&id=${encodeURIComponent(id)}&offset=${offset}&total=${file.size}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': file.type || 'application/octet-stream',
-            Authorization: `Bearer ${token}`,
-          },
-          body: chunk,
-          signal: controller.signal,
-          cache: 'no-store',
-        },
-      );
-      setUpload((prev) => prev ? { ...prev, requestPhase: 'response-received', loaded: Math.max(prev.loaded, end), inFlightLoaded: Math.max(prev.inFlightLoaded || 0, end) } : prev);
-      // iOS WebKit can deliver the response headers but stall while reading the
-      // response body. Do not depend on the body; reconcile through the status GET.
-      await response.body?.cancel().catch(() => {});
-      if (response.status === 409) {
-        const status = await queryUploadOffset(id);
-        throw new UploadOffsetError(status.offset);
-      }
-      if (!response.ok) {
-        throw new Error(response.status === 413 ? '文件超过 Hub 限制' : '上传中断，可继续上传');
-      }
-      const status = await queryUploadOffset(id);
-      return {
-        offset: status.offset,
-        complete: status.complete,
-        file: status.file,
-      };
-    } finally {
-      window.clearTimeout(timeout);
-      fetchAbortRef.current = null;
-    }
-  }, [queryUploadOffset, token]);
-
-  const uploadFile = useCallback(async (
-    file: File,
-    resume?: { id: string; offset: number },
-    batch?: UploadBatch,
-  ): Promise<HubFile> => {
-    const id = resume?.id || makeTransferId();
-    let confirmedOffset = resume?.offset || 0;
-    let offset = confirmedOffset;
-    cancelUploadRef.current = false;
-    setUpload({
-      name: file.name,
-      loaded: confirmedOffset,
-      total: file.size,
-      startedAt: batch?.startedAt || Date.now(),
-      status: 'uploading',
-      file,
-      uploadId: id,
-      offset: confirmedOffset,
-      confirmedOffset,
-      inFlightLoaded: confirmedOffset,
-      checking: false,
-      serverDiag: null,
-      batchIndex: batch?.index,
-      batchCount: batch?.count,
-      batchTotal: batch?.totalBytes,
-      batchBase: batch?.baseBytes ?? 0,
-      batchStartedAt: batch?.startedAt,
-    });
-
-    while (offset <= file.size) {
-      let lastError: unknown = null;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        if (cancelUploadRef.current) throw new UploadCancelledError();
-        try {
-          const result = transport === 'fetch-blob'
-            ? await uploadChunkFetch(file, id, offset)
-            : await uploadChunk(file, id, offset);
-          if (result.complete && result.file) {
-            setUpload((prev) => prev ? {
-              ...prev,
-              loaded: result.offset,
-              inFlightLoaded: result.offset,
-              confirmedOffset: result.offset,
-              offset: result.offset,
-              status: 'uploading',
-            } : prev);
-            return result.file;
-          }
-          confirmedOffset = result.offset;
-          offset = result.offset;
-          setUpload((prev) => prev ? {
-            ...prev,
-            offset,
-            confirmedOffset,
-            loaded: confirmedOffset,
-            inFlightLoaded: confirmedOffset,
-            status: 'uploading',
-            checking: false,
-          } : prev);
-          lastError = null;
-          break;
-        } catch (reason) {
-          if (reason instanceof UploadCancelledError) throw reason;
-          lastError = reason;
-
-          // Always reconcile with the server after a failed chunk. The browser's
-          // upload progress is only "sent", never "saved".
-          let serverStatus: { offset: number; complete: boolean; file?: HubFile; diagnostics?: ServerChunkDiag | null } | null = null;
-          try {
-            serverStatus = await queryUploadOffset(id);
-          } catch {
-            // Keep the last confirmed offset; never promote in-flight bytes.
-          }
-          if (serverStatus?.complete && serverStatus.file) {
-            setUpload((prev) => prev ? {
-              ...prev,
-              loaded: serverStatus!.offset,
-              inFlightLoaded: serverStatus!.offset,
-              confirmedOffset: serverStatus!.offset,
-              offset: serverStatus!.offset,
-              status: 'uploading',
-            } : prev);
-            return serverStatus.file;
-          }
-          if (serverStatus) {
-            confirmedOffset = serverStatus.offset;
-            offset = serverStatus.offset;
-            setUpload((prev) => prev ? {
-              ...prev,
-              confirmedOffset,
-              offset,
-              serverDiag: serverStatus.diagnostics ?? prev.serverDiag,
-              status: 'retrying',
-              checking: false,
-            } : prev);
-          } else if (reason instanceof UploadOffsetError) {
-            confirmedOffset = reason.offset;
-            offset = reason.offset;
-            setUpload((prev) => prev ? {
-              ...prev,
-              confirmedOffset,
-              offset,
-              status: 'retrying',
-              checking: false,
-            } : prev);
-          } else {
-            setUpload((prev) => prev ? {
-              ...prev,
-              status: 'retrying',
-              checking: false,
-            } : prev);
-          }
-          if (attempt < 3) {
-            await new Promise((resolve) => window.setTimeout(resolve, 700 * (attempt + 1)));
-          }
-        }
-      }
-      if (lastError) {
-        if (cancelUploadRef.current) throw new UploadCancelledError();
-        const message = lastError instanceof Error ? lastError.message : String(lastError);
-        setUpload((prev) => prev ? {
-          ...prev,
-          status: 'error',
-          offset,
-          confirmedOffset,
-          checking: false,
-          error: message,
-        } : prev);
-        throw lastError;
-      }
-      if (offset >= file.size) {
-        try {
-          const status = await queryUploadOffset(id);
-          if (status.complete && status.file) {
-            setUpload((prev) => prev ? {
-              ...prev,
-              loaded: status.offset,
-              inFlightLoaded: status.offset,
-              confirmedOffset: status.offset,
-              offset: status.offset,
-            } : prev);
-            return status.file;
-          }
-        } catch {
-          // fall through to a normal retry
-        }
-        if (offset === file.size) {
-          // Retry the final zero-length chunk so a lost completion response can finalize.
-          const result = transport === 'fetch-blob'
-            ? await uploadChunkFetch(file, id, offset)
-            : await uploadChunk(file, id, offset);
-          if (result.complete && result.file) return result.file;
-        }
-      }
-    }
-    throw new Error('上传未完成');
-  }, [queryUploadOffset, transport, uploadChunk, uploadChunkFetch]);
-
-  const uploadBatch = useCallback(async (
-    files: File[],
-    startIndex = 0,
-    completedBefore = 0,
-    resumeCurrent?: { id: string; offset: number },
-  ) => {
-    if (files.length === 0) return;
-    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-    const startedAt = batchQueueRef.current?.startedAt || Date.now();
-    let completedBytes = completedBefore;
-    batchQueueRef.current = {
-      files,
-      index: startIndex,
-      completedBytes,
-      totalBytes,
-      startedAt,
-    };
-    setError('');
-
-    for (let index = startIndex; index < files.length; index += 1) {
-      const file = files[index];
-      const resume = index === startIndex ? resumeCurrent : undefined;
-      try {
-        const saved = await uploadFile(file, resume, {
-          index: index + 1,
-          count: files.length,
-          totalBytes,
-          baseBytes: completedBytes,
-          startedAt,
-        });
-        completedBytes += saved.size;
-        batchQueueRef.current = {
-          files,
-          index: index + 1,
-          completedBytes,
-          totalBytes,
-          startedAt,
-        };
-      } catch (reason) {
-        if (reason instanceof UploadCancelledError) {
-          batchQueueRef.current = null;
-          setUpload((prev) => prev ? { ...prev, status: 'cancelled', error: undefined } : prev);
-          setError('');
-        } else {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
-        return;
-      }
-    }
-
-    batchQueueRef.current = null;
-    setUpload((prev) => prev ? {
-      ...prev,
-      loaded: prev.file?.size || prev.loaded,
-      inFlightLoaded: prev.file?.size || prev.inFlightLoaded,
-      total: prev.file?.size || prev.total,
-      status: 'done',
-      offset: prev.file?.size || prev.offset,
-      confirmedOffset: prev.file?.size || prev.confirmedOffset,
-    } : prev);
-    await refresh();
-  }, [refresh, uploadFile]);
-
-  useEffect(() => {
-    if (!upload?.uploadId) return;
-    if (upload.status !== 'uploading' && upload.status !== 'retrying') return;
-    const uploadId = upload.uploadId;
-    const timer = window.setInterval(() => {
-      void queryUploadOffset(uploadId).then((status) => {
-        setUpload((prev) => prev && prev.uploadId === uploadId ? {
-          ...prev,
-          serverDiag: status.diagnostics ?? prev.serverDiag,
-        } : prev);
-      }).catch(() => { /* network down; keep the last diagnostic */ });
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [queryUploadOffset, upload?.uploadId, upload?.status]);
-
   const handleFiles = useCallback(async (fileList: FileList | File[]) => {
     const selected = Array.from(fileList);
     if (selected.length === 0) return;
@@ -910,8 +434,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         : '主机服务不可用，主机可能已切换到公用网络或关闭了应用');
       return;
     }
-    await uploadBatch(selected);
-  }, [desktop, online, uploadBatch]);
+    await startUpload(selected);
+  }, [desktop, online, startUpload]);
 
   const selectFiles = useCallback((fileList: FileList | File[]) => {
     const selected = Array.from(fileList);
@@ -936,135 +460,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     setPendingFiles([]);
     void handleFiles(selected);
   }, [handleFiles, pendingFiles]);
-
-  const resumeUpload = useCallback(() => {
-    if (!upload?.file || !upload.uploadId) return;
-    cancelUploadRef.current = false;
-    const file = upload.file;
-    const uploadId = upload.uploadId;
-    const queue = batchQueueRef.current;
-    setUpload((prev) => prev ? {
-      ...prev,
-      status: 'retrying',
-      checking: true,
-      error: undefined,
-    } : prev);
-
-    void (async () => {
-      let status: { offset: number; complete: boolean; file?: HubFile; diagnostics?: ServerChunkDiag | null };
-      try {
-        status = await queryUploadOffset(uploadId);
-      } catch {
-        const message = '无法核对服务器已保存进度，请检查连接后重试';
-        setUpload((prev) => prev ? {
-          ...prev,
-          status: 'error',
-          checking: false,
-          error: message,
-        } : prev);
-        setError(message);
-        return;
-      }
-      if (hasServerFile(status)) {
-        const doneOffset = status.offset;
-        if (queue && upload.file) {
-          const nextCompleted = queue.completedBytes + upload.file.size;
-          const nextIndex = queue.index + 1;
-          batchQueueRef.current = {
-            ...queue,
-            index: nextIndex,
-            completedBytes: nextCompleted,
-          };
-          if (nextIndex < queue.files.length) {
-            setUpload((prev) => prev ? {
-              ...prev,
-              loaded: upload.file!.size,
-              inFlightLoaded: upload.file!.size,
-              confirmedOffset: upload.file!.size,
-              offset: upload.file!.size,
-              status: 'uploading',
-              checking: false,
-            } : prev);
-            await uploadBatch(queue.files, nextIndex, nextCompleted);
-            return;
-          }
-          batchQueueRef.current = null;
-        }
-        setUpload((prev) => prev ? {
-          ...prev,
-          loaded: doneOffset,
-          inFlightLoaded: doneOffset,
-          confirmedOffset: doneOffset,
-          offset: doneOffset,
-          status: 'done',
-          checking: false,
-        } : prev);
-        await refresh();
-        return;
-      }
-
-      const confirmed = resolveServerOffset({
-        confirmedOffset: upload.confirmedOffset ?? upload.offset ?? 0,
-        inFlightLoaded: upload.inFlightLoaded ?? upload.loaded ?? 0,
-      }, status).confirmedOffset;
-      setUpload((prev) => prev ? {
-        ...prev,
-        confirmedOffset: confirmed,
-        offset: confirmed,
-        loaded: confirmed,
-        inFlightLoaded: confirmed,
-        serverDiag: status.diagnostics ?? prev.serverDiag,
-        checking: false,
-      } : prev);
-
-      if (queue) {
-        await uploadBatch(
-          queue.files,
-          queue.index,
-          queue.completedBytes,
-          { id: uploadId, offset: confirmed },
-        );
-        return;
-      }
-      const batch = upload.batchCount ? {
-        index: upload.batchIndex || 1,
-        count: upload.batchCount,
-        totalBytes: upload.batchTotal || upload.total,
-        baseBytes: upload.batchBase || 0,
-        startedAt: upload.batchStartedAt || upload.startedAt,
-      } : undefined;
-      try {
-        const saved = await uploadFile(file, { id: uploadId, offset: confirmed }, batch);
-        setUpload((prev) => prev ? {
-          ...prev,
-          loaded: saved.size,
-          inFlightLoaded: saved.size,
-          total: saved.size,
-          status: 'done',
-          offset: saved.size,
-          confirmedOffset: saved.size,
-        } : prev);
-        await refresh();
-      } catch {
-        // upload state carries the failure
-      }
-    })();
-  }, [queryUploadOffset, refresh, upload, uploadBatch, uploadFile]);
-
-  const cancelUpload = useCallback(() => {
-    cancelUploadRef.current = true;
-    batchQueueRef.current = null;
-    fetchAbortRef.current?.abort();
-    xhrRef.current?.abort();
-    const id = upload?.uploadId;
-    if (id && token) {
-      void fetch(`${API_BASE}/api/upload/chunk/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
-    }
-    setUpload((prev) => prev ? { ...prev, status: 'cancelled', error: undefined } : prev);
-  }, [token, upload?.uploadId]);
 
   const deleteFile = useCallback(async (id: string) => {
     if (!window.confirm('确定从电脑上删除这个文件？')) return;
@@ -1309,7 +704,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const uploadEta = uploadSpeed > 0 ? Math.max(0, (uploadTotalBytes - uploadLoadedBytes) / uploadSpeed) : 0;
   const uploadDiagnostic = upload ? {
     mode: transport,
-    chunkBytes: isIosDevice() ? IOS_UPLOAD_CHUNK_SIZE : UPLOAD_CHUNK_SIZE,
+    chunkBytes,
     fileSize: upload.total,
     batchIndex: upload.batchIndex,
     batchCount: upload.batchCount,

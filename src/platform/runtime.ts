@@ -26,6 +26,20 @@ export function isBrowserRuntime(): boolean {
 }
 
 /**
+ * iOS/iPadOS detection. Upload transport (fetch+Blob) and the sequential file
+ * picker branch on this; keep it in the platform layer so features do not
+ * inspect the user agent themselves.
+ */
+export function isIosDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return (
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
+/**
  * Base URL for the LAN Hub API.
  *
  * - Tauri shell / Node (no `window`): loopback Hub.
