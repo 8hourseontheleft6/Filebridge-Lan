@@ -7,6 +7,8 @@ import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress
 import type { HubInfo } from '../api/infoApi';
 import type { LanServiceStatus } from '../features/network/types';
 import { useSessionController } from '../features/session/useSessionController';
+import { useFilesController } from '../features/files/useFilesController';
+import type { HubFile } from '../features/files/types';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
@@ -14,7 +16,7 @@ import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
 import { usePresenceList } from '../lib/usePresence';
-import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
+import { ConnectionMonitor, HEARTBEAT_STALE_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers } from './NearbyComputers';
 import type { NearbyPeer } from '../features/connection/types';
@@ -29,15 +31,6 @@ type UploadTransport = 'xhr-blob' | 'fetch-blob';
 function percentOf(loaded: number, total: number): number {
   if (total > 0) return Math.min(100, Math.round((loaded / total) * 100));
   return loaded > 0 ? 100 : 0;
-}
-
-interface HubFile {
-  id: string;
-  name: string;
-  size: number;
-  sha256: string;
-  mime: string;
-  createdAt: number;
 }
 
 interface SavedFile {
@@ -202,15 +195,12 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const connectionMonitorRef = useRef(new ConnectionMonitor());
   const sseLastEventAtRef = useRef(0);
   const [info, setInfo] = useState<HubInfo | null>(null);
-  const [files, setFiles] = useState<HubFile[]>([]);
   const [upload, setUpload] = useState<UploadState | null>(null);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [dropLeaving, setDropLeaving] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
-  const [batchDeleting, setBatchDeleting] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [savedPaths, setSavedPaths] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<ToastState | null>(null);
   const [activeDownload, setActiveDownload] = useState<ActiveDownload | null>(null);
@@ -245,6 +235,18 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     sessionReady,
     rotating,
   } = session;
+
+  const filesState = useFilesController({
+    token,
+    sessionReady,
+    onUnauthorized: () => session.expireToken('授权已过期，请重新配对'),
+  });
+  const {
+    files,
+    selectedIds,
+    batchDeleting,
+    allSelected,
+  } = filesState;
 
   const inputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -314,41 +316,27 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     };
   }, [desktop]);
 
+  // Probe wrapper: the list itself lives in the files controller; the
+  // connection-monitor bookkeeping stays here until the SSE slice (E5).
   const refresh = useCallback(async () => {
     if (!token || !sessionReady) return;
     const monitor = connectionMonitorRef.current;
     if (!monitor.beginProbe()) return;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
-    try {
-      const response = await fetch(`${API_BASE}/api/files`, {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      });
-      if (response.status === 401) {
-        session.expireToken('授权已过期，请重新配对');
-        monitor.completeProbe(true);
-        return;
-      }
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as HubFile[];
-      const nextFiles = Array.isArray(data) ? data : [];
-      setFiles(nextFiles);
-      setSelectedIds((prev) => new Set(
-        [...prev].filter((id) => nextFiles.some((file) => file.id === id))
-      ));
+    const result = await filesState.refresh();
+    if (result.kind === 'unauthorized') {
+      monitor.completeProbe(true);
+      return;
+    }
+    if (result.kind === 'ok') {
       const wasOffline = monitor.isOnline === false;
       monitor.completeProbe(true);
       if (wasOffline) sseLastEventAtRef.current = Date.now();
       setOnline(true);
-    } catch {
-      const outcome = monitor.completeProbe(false);
-      if (outcome.changed && outcome.offline) setOnline(false);
-    } finally {
-      window.clearTimeout(timeout);
+      return;
     }
-  }, [sessionReady, token]);
+    const outcome = monitor.completeProbe(false);
+    if (outcome.changed && outcome.offline) setOnline(false);
+  }, [filesState.refresh, sessionReady, token]);
 
   const spinRefresh = useCallback(() => {
     if (refreshSpinTimerRef.current !== null) window.clearTimeout(refreshSpinTimerRef.current);
@@ -501,23 +489,18 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     // may veto the token so a pairing that cannot read files stays uncommitted.
     const unlocked = await session.unlock({
       preCommit: async (pairedToken) => {
-        const response = await fetch(`${API_BASE}/api/files`, {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${pairedToken}` },
-        });
-        if (!response.ok) throw new Error('配对成功，但读取文件列表失败，请重试');
-        const data = (await response.json()) as HubFile[];
-        setFiles(Array.isArray(data) ? data : []);
+        const result = await filesState.probeWithToken(pairedToken);
+        if (result.kind !== 'ok') throw new Error('配对成功，但读取文件列表失败，请重试');
       },
     });
     if (unlocked) setOnline(true);
-  }, [session.unlock]);
+  }, [filesState.probeWithToken, session.unlock]);
 
   const rotatePairing = useCallback(async () => {
     if (!window.confirm('重新生成配对码会使所有手机连接失效，确定继续？')) return;
     const rotated = await session.rotatePairing();
-    if (rotated) setFiles([]);
-  }, [session.rotatePairing]);
+    if (rotated) filesState.reset();
+  }, [filesState.reset, session.rotatePairing]);
 
   useEffect(() => {
     void loadInfo();
@@ -1083,26 +1066,17 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
 
   const deleteFile = useCallback(async (id: string) => {
     if (!window.confirm('确定从电脑上删除这个文件？')) return;
-    try {
-      const response = await fetch(`${API_BASE}/api/files/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.status === 401) {
-        session.expireToken('授权已过期，请在“连接详情”里重新配对');
-        return;
-      }
-      if (!response.ok) throw new Error('删除失败，请稍后重试');
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '删除失败，请稍后重试');
+    const result = await filesState.deleteOne(id);
+    if (result.kind === 'unauthorized') {
+      session.expireToken('授权已过期，请在“连接详情”里重新配对');
+      return;
     }
-  }, [refresh, token]);
+    if (result.kind === 'error') {
+      setError(result.message);
+      return;
+    }
+    await refresh();
+  }, [filesState.deleteOne, refresh, session.expireToken]);
 
   const deleteSelected = useCallback(async () => {
     if (batchDeleting || batchSaving || selectedIds.size === 0) return;
@@ -1110,34 +1084,19 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     if (targets.length === 0) return;
     if (!window.confirm(`确定从电脑上删除 ${targets.length} 个文件？此操作不可恢复。`)) return;
 
-    setBatchDeleting(true);
-    let removed = 0;
-    try {
-      for (const file of targets) {
-        const response = await fetch(`${API_BASE}/api/files/${file.id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.status === 401) {
-          session.expireToken('授权已过期，请在“连接详情”里重新配对');
-          return;
-        }
-        if (!response.ok) throw new Error(`删除 ${file.name} 失败`);
-        removed += 1;
-      }
-      setSelectedIds(new Set());
-      setToast({ text: `已删除 ${removed}/${targets.length} 个文件`, kind: 'success' });
-      await refresh();
-    } catch (reason) {
-      setToast({
-        text: reason instanceof Error ? reason.message : '批量删除失败',
-        kind: 'error',
-      });
-      await refresh();
-    } finally {
-      setBatchDeleting(false);
+    const result = await filesState.deleteSelected();
+    if (result.kind === 'skipped') return;
+    if (result.kind === 'unauthorized') {
+      session.expireToken('授权已过期，请在“连接详情”里重新配对');
+      return;
     }
-  }, [batchDeleting, batchSaving, files, refresh, selectedIds, token]);
+    if (result.kind === 'ok') {
+      setToast({ text: `已删除 ${result.deleted}/${result.total} 个文件`, kind: 'success' });
+    } else {
+      setToast({ text: result.message, kind: 'error' });
+    }
+    await refresh();
+  }, [batchDeleting, batchSaving, files, filesState.deleteSelected, refresh, selectedIds, session.expireToken]);
 
   const openPath = useCallback((path: string) => {    if (!desktop) return;
     void invoke('open_path', { path }).catch((reason) => {
@@ -1245,21 +1204,9 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     });
   }, [activeDownload]);
 
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const toggleSelected = filesState.toggleSelected;
 
-  const toggleSelectAll = useCallback(() => {
-    setSelectedIds((prev) => {
-      const all = files.length > 0 && files.every((file) => prev.has(file.id));
-      return all ? new Set() : new Set(files.map((file) => file.id));
-    });
-  }, [files]);
+  const toggleSelectAll = filesState.toggleAll;
 
   // Files can be dropped anywhere in the window; the list itself is not a drop target.
   useEffect(() => {
@@ -1510,8 +1457,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     }, 400);
     return () => window.clearInterval(timer);
   }, []);
-
-  const allSelected = files.length > 0 && files.every((file) => selectedIds.has(file.id));
 
   const canRotate = desktop
     || window.location.hostname === 'localhost'

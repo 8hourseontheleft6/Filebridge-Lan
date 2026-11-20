@@ -25,7 +25,7 @@
     "test:connection": "node --experimental-strip-types --import ./scripts/node-ts-resolve.mjs --test src/lib/connectionMonitor.test.mjs",
     "test:clipboard": "node --experimental-strip-types --import ./scripts/node-ts-resolve.mjs --test src/lib/clipboard.test.mjs src/features/clipboard/clipboardService.test.mjs",
     "test:lan": "node --experimental-strip-types --import ./scripts/node-ts-resolve.mjs --test src/features/network/lanAddress.test.mjs && node --test scripts/lan-ips.test.mjs",
-    "test:features": "node --experimental-strip-types --import ./scripts/node-ts-resolve.mjs --test src/features/settings/settingsService.test.mjs src/features/network/networkService.test.mjs src/features/connection/connectionService.test.mjs src/features/session/sessionService.test.mjs",
+    "test:features": "node --experimental-strip-types --import ./scripts/node-ts-resolve.mjs --test src/features/settings/settingsService.test.mjs src/features/network/networkService.test.mjs src/features/connection/connectionService.test.mjs src/features/session/sessionService.test.mjs src/features/files/filesService.test.mjs",
     "test:api": "node --experimental-strip-types --import ./scripts/node-ts-resolve.mjs --test src/api/httpClient.test.mjs"
   },
   "dependencies": {

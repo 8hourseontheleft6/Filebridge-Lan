@@ -59,7 +59,7 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 
 | 文件 | 行数 | 混合的职责 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 2089 | 文件列表、上传队列、XHR/Fetch 分块、offset 续传、重试/取消/删除、下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1 迁出） |
+| `src/http/HttpTransfer.tsx` | 2041 | 上传队列、XHR/Fetch 分块、offset 续传、重试/取消、下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2 迁出） |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
 
 已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
@@ -90,6 +90,18 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 HttpTransfer 现在只调用 `useSessionController` 暴露的状态与 actions，并保留配对区展开、
 `showCode`、手动输入框 UI 与「配对成功但读文件失败」的文件预检回调。
 
+已迁移（阶段 E2）：
+
+| 项 | 迁移前 | 迁移后 |
+|---|---|---|
+| `src/http/HttpTransfer.tsx` | 2089 | **2041** |
+| 文件列表 / 选择 / 刷新 / 删除 | 内联在组件中（含 `/api/files` GET/DELETE fetch、选中集合、批量删除计数） | `features/files/{filesService,useFilesController,types}.ts` |
+
+`src/features/files/` 职责：`HubFile` 单一定义、列表刷新与 401 映射、刷新失败保留旧列表、
+选择集合的 toggle/全选/清空、刷新后清理已消失的选中项、单个与批量删除（逐条、首错即停、
+保留原错误文案）、删除后清理选择。HttpTransfer 只保留展示层（确认框、toast、刷新动画）
+和连接探针包装（`connectionMonitor` / `sseLastEventAt` 属 E5 SSE 范围）。
+
 删除的旧文件：`src/http/connect.ts`（并入 `src/api/connectionApi.ts`）、`src/lib/hub.ts`
 （运行环境判断与 `API_BASE` → `platform/runtime.ts`；`fetchHubInfo` → `api/infoApi.ts`；
 手机地址函数 → `features/network/lanAddress.ts`）。
@@ -113,7 +125,7 @@ src/http/HttpTransfer.tsx       tauri-invoke, tauri-core-import, tauri-event-imp
 | B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 已完成 |
 | C | 剪贴板纵向切片（api/service/controller + 面板改造） | 已完成（UI 四态回归待补） |
 | D | 设置、网络门禁、连接模块 | 已完成 |
-| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1 已完成；E2 files 为下一步 |
+| E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | E1、E2 已完成；E3 upload 为下一步 |
 | F | Relay 模块 | 待开始 |
 | G | Rust Hub 服务化 | 待开始 |
 | H | Node Hub 服务化 + 双端契约 fixture | 待开始 |
