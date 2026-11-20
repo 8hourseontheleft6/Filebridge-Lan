@@ -59,7 +59,7 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 
 | 文件 | 行数 | 混合的职责 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 2041 | 上传队列、XHR/Fetch 分块、offset 续传、重试/取消、下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2 迁出） |
+| `src/http/HttpTransfer.tsx` | 2043 | 上传队列、XHR/Fetch 分块、offset 续传、重试/取消、下载与保存、Tauri 调用、SSE 生命周期、速率统计、大量 UI（session/pairing 已于 E1、文件列表/选择/删除已于 E2 迁出） |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
 
 已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
@@ -94,12 +94,14 @@ HttpTransfer 现在只调用 `useSessionController` 暴露的状态与 actions�
 
 | 项 | 迁移前 | 迁移后 |
 |---|---|---|
-| `src/http/HttpTransfer.tsx` | 2089 | **2041** |
+| `src/http/HttpTransfer.tsx` | 2089 | **2043** |
 | 文件列表 / 选择 / 刷新 / 删除 | 内联在组件中（含 `/api/files` GET/DELETE fetch、选中集合、批量删除计数） | `features/files/{filesService,useFilesController,types}.ts` |
 
 `src/features/files/` 职责：`HubFile` 单一定义、列表刷新与 401 映射、刷新失败保留旧列表、
 选择集合的 toggle/全选/清空、刷新后清理已消失的选中项、单个与批量删除（逐条、首错即停、
-保留原错误文案）、删除后清理选择。HttpTransfer 只保留展示层（确认框、toast、刷新动画）
+保留原错误文案）、删除后清理选择。列表刷新仍按 `PROBE_TIMEOUT_MS`（2s）超时，离线判定
+时机与迁移前一致；只有 401 视为 token 失效，403（Host/Origin 门禁）保持探测失败/删除错误，
+不触发会话过期。HttpTransfer 只保留展示层（确认框、toast、刷新动画）
 和连接探针包装（`connectionMonitor` / `sseLastEventAt` 属 E5 SSE 范围）。
 
 删除的旧文件：`src/http/connect.ts`（并入 `src/api/connectionApi.ts`）、`src/lib/hub.ts`

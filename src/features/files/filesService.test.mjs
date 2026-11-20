@@ -26,8 +26,8 @@ function fakeApi(overrides = {}) {
   const calls = [];
   return {
     calls,
-    listFiles: async (token) => {
-      calls.push(['list', token]);
+    listFiles: async (token, options) => {
+      calls.push(['list', token, options]);
       return [FILE_A, FILE_B];
     },
     deleteFile: async (token, id) => {
@@ -46,7 +46,13 @@ test('initial load returns the file list', async () => {
   const result = await refreshFiles('tok', api);
   assert.equal(result.kind, 'ok');
   assert.deepEqual(result.kind === 'ok' ? result.files.map((f) => f.id) : [], ['a', 'b']);
-  assert.deepEqual(api.calls[0], ['list', 'tok']);
+  assert.deepEqual(api.calls[0], ['list', 'tok', {}]);
+});
+
+test('refresh forwards the probe timeout to the transport', async () => {
+  const api = fakeApi();
+  await refreshFiles('tok', api, { timeoutMs: 2000 });
+  assert.deepEqual(api.calls[0], ['list', 'tok', { timeoutMs: 2000 }]);
 });
 
 test('empty token skips the request entirely', async () => {
@@ -147,6 +153,27 @@ test('401 during refresh is reported as unauthorized (not an empty success)', as
   assert.equal(result.kind, 'unauthorized');
   // A token rejection must never look like "the list is empty".
   assert.notEqual(result.kind, 'ok');
+});
+
+test('403 from the Host/Origin guard is not mistaken for an expired token', async () => {
+  const api = fakeApi({ listFiles: async () => { throw ApiError.http(403, { message: 'Host 不允许' }); } });
+  const result = await refreshFiles('tok', api);
+  assert.equal(result.kind, 'error');
+  // Only the 401 path may expire the session; 403 stays a probe failure.
+  assert.notEqual(result.kind, 'unauthorized');
+});
+
+test('403 during single delete stays a delete error', async () => {
+  const api = fakeApi({ deleteFile: async () => { throw ApiError.http(403); } });
+  const result = await deleteFileById('tok', 'a', api);
+  assert.equal(result.kind, 'error');
+  assert.equal(result.kind === 'error' ? result.message : '', '删除失败，请稍后重试');
+});
+
+test('401 during single delete is unauthorized', async () => {
+  const api = fakeApi({ deleteFile: async () => { throw ApiError.http(401); } });
+  const result = await deleteFileById('tok', 'a', api);
+  assert.equal(result.kind, 'unauthorized');
 });
 
 test('service unavailable maps to an explicit error, not a fake success', async () => {

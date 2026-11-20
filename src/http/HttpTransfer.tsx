@@ -16,7 +16,7 @@ import { InfoTip } from '../components/InfoTip';
 import { Icon } from '../components/Icon';
 import { confirmedPercent, hasServerFile, resolveServerOffset, shouldShowLiveUpload } from '../lib/uploadOffsets';
 import { usePresenceList } from '../lib/usePresence';
-import { ConnectionMonitor, HEARTBEAT_STALE_MS, isHeartbeatStale } from '../lib/connectionMonitor';
+import { ConnectionMonitor, HEARTBEAT_STALE_MS, PROBE_TIMEOUT_MS, isHeartbeatStale } from '../lib/connectionMonitor';
 import { ConnectPanel } from './ConnectPanel';
 import { NearbyComputers } from './NearbyComputers';
 import type { NearbyPeer } from '../features/connection/types';
@@ -322,7 +322,9 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     if (!token || !sessionReady) return;
     const monitor = connectionMonitorRef.current;
     if (!monitor.beginProbe()) return;
-    const result = await filesState.refresh();
+    // Keep the pre-E2 probe budget (2s abort) so online/offline detection
+    // timing is unchanged; the monitor bookkeeping still lives here until E5.
+    const result = await filesState.refresh({ timeoutMs: PROBE_TIMEOUT_MS });
     if (result.kind === 'unauthorized') {
       monitor.completeProbe(true);
       return;

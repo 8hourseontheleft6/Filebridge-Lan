@@ -27,6 +27,7 @@ import type {
   DeleteOneResult,
   FilesApiPort,
   FilesRefreshResult,
+  FilesRequestOptions,
   FilesState,
   HubFile,
 } from './types';
@@ -44,7 +45,7 @@ export interface FilesController {
   selectedIds: Set<string>;
   batchDeleting: boolean;
   allSelected: boolean;
-  refresh(): Promise<FilesRefreshResult>;
+  refresh(options?: FilesRequestOptions): Promise<FilesRefreshResult>;
   /** Load with a token that is being committed (manual pairing pre-check). */
   probeWithToken(token: string): Promise<FilesRefreshResult>;
   toggleSelected(id: string): void;
@@ -81,9 +82,9 @@ export function useFilesController({
     };
   }, []);
 
-  const refresh = useCallback(async (): Promise<FilesRefreshResult> => {
+  const refresh = useCallback(async (options: FilesRequestOptions = {}): Promise<FilesRefreshResult> => {
     if (!token || !sessionReady) return { kind: 'skipped' };
-    const result = await refreshFiles(token, api);
+    const result = await refreshFiles(token, api, options);
     if (!aliveRef.current) return result;
     if (result.kind === 'unauthorized') onUnauthorizedRef.current?.();
     setState((prev) => filesAfterRefresh(prev, result));

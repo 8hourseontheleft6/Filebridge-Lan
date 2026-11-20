@@ -11,6 +11,7 @@ import type {
   DeleteOneResult,
   FilesApiPort,
   FilesRefreshResult,
+  FilesRequestOptions,
   FilesState,
   HubFile,
 } from './types';
@@ -18,12 +19,17 @@ import type {
 export type { FilesApiPort };
 
 export const httpFilesApi: FilesApiPort = {
-  listFiles: (token) => apiListFiles(token),
+  listFiles: (token, options) => apiListFiles(token, options),
   deleteFile: (token, id) => apiDeleteFile(token, id),
 };
 
+/**
+ * File endpoints signal an expired token with 401 only (both Hubs). A 403
+ * here comes from the Host/Origin guard and must stay a probe failure/error,
+ * exactly like the pre-E2 inline fetch.
+ */
 function isUnauthorized(error: unknown): boolean {
-  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+  return error instanceof ApiError && error.status === 401;
 }
 
 function errorText(error: unknown, fallback: string): string {
@@ -44,10 +50,11 @@ function networkText(error: unknown, fallback: string): string {
 export async function refreshFiles(
   token: string,
   api: FilesApiPort = httpFilesApi,
+  options: FilesRequestOptions = {},
 ): Promise<FilesRefreshResult> {
   if (!token) return { kind: 'skipped' };
   try {
-    const files = await api.listFiles(token);
+    const files = await api.listFiles(token, options);
     return { kind: 'ok', files: Array.isArray(files) ? files : [] };
   } catch (error) {
     if (isUnauthorized(error)) return { kind: 'unauthorized' };

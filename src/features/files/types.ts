@@ -8,9 +8,14 @@ export interface HubFile {
   createdAt: number;
 }
 
+/** Per-request transport options; the connection probe keeps its own timeout. */
+export interface FilesRequestOptions {
+  timeoutMs?: number;
+}
+
 /** Transport surface used by the files service (backed by `src/api/filesApi.ts`). */
 export interface FilesApiPort {
-  listFiles(token: string): Promise<HubFile[]>;
+  listFiles(token: string, options?: FilesRequestOptions): Promise<HubFile[]>;
   deleteFile(token: string, id: string): Promise<void>;
 }
 
