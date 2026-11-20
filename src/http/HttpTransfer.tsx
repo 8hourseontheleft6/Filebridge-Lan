@@ -6,6 +6,7 @@ import { API_BASE, isTauriHost } from '../platform/runtime';
 import { listPhoneHosts, resolvePhoneBase } from '../features/network/lanAddress';
 import type { HubInfo } from '../api/infoApi';
 import type { LanServiceStatus } from '../features/network/types';
+import { useSessionController } from '../features/session/useSessionController';
 import { JoinQr } from '../components/JoinQr';
 import { CopyButton } from '../components/CopyButton';
 import { RateCard } from '../components/RateCard';
@@ -19,54 +20,15 @@ import { NearbyComputers } from './NearbyComputers';
 import type { NearbyPeer } from '../features/connection/types';
 import { ClipboardPanel } from './ClipboardPanel';
 
-const SESSION_STORAGE_KEY = 'filebridge_session_code';
-const TOKEN_STORAGE_KEY = 'filebridge_session_token';
 const UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
 const IOS_UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
 const UPLOAD_CHUNK_TIMEOUT_MS = 90_000;
 
 type UploadTransport = 'xhr-blob' | 'fetch-blob';
 
-function readSessionCode(): string {
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  const fromHash = params.get('code')?.trim() || '';
-  if (fromHash) {
-    try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, fromHash); } catch { /* ignore */ }
-    return fromHash;
-  }
-  try {
-    return window.sessionStorage.getItem(SESSION_STORAGE_KEY)?.trim() || '';
-  } catch {
-    return '';
-  }
-}
-
-function readToken(): string {
-  try {
-    return window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() || '';
-  } catch {
-    return '';
-  }
-}
-
 function percentOf(loaded: number, total: number): number {
   if (total > 0) return Math.min(100, Math.round((loaded / total) * 100));
   return loaded > 0 ? 100 : 0;
-}
-
-async function pairSession(code: string): Promise<{ token: string; expiresAt: number }> {
-  const response = await fetch(`${API_BASE}/api/pair`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
-  if (!response.ok) {
-    if (response.status === 401) throw new Error('配对码错误，请检查电脑上显示的 6 位配对码');
-    if (response.status === 429) throw new Error('尝试次数过多，请稍后再试');
-    if (response.status === 403) throw new Error('当前网络不允许配对，请确认电脑与手机在同一专用网络');
-    throw new Error('无法连接 Filebridge-Lan Hub，请确认电脑端服务在线');
-  }
-  return (await response.json()) as { token: string; expiresAt: number };
 }
 
 interface HubFile {
@@ -254,14 +216,8 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const [activeDownload, setActiveDownload] = useState<ActiveDownload | null>(null);
   const [liveUpload, setLiveUpload] = useState<LiveUpload | null>(null);
   const liveUploadEventAtRef = useRef(0);
-  const [sessionCode, setSessionCode] = useState(() => readSessionCode());
-  const [token, setToken] = useState(() => readToken());
-  const [codeInput, setCodeInput] = useState('');
-  const [codeError, setCodeError] = useState('');
-  const [sessionReady, setSessionReady] = useState(false);
   const [showCode, setShowCode] = useState(false);
   const [pairingOpen, setPairingOpen] = useState(false);
-  const [rotating, setRotating] = useState(false);
   const [refreshSpinning, setRefreshSpinning] = useState(false);
   const refreshSpinTimerRef = useRef<number | null>(null);
   const [peerFrame, setPeerFrame] = useState<NearbyPeer | null>(null);
@@ -272,6 +228,23 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     || window.location.hostname === '::1';
   const autoConnect = new URLSearchParams(window.location.search).get('connect') === '1'
     || (!desktop && !localBrowser);
+  const localHubAccess = desktop
+    || window.location.hostname === 'localhost'
+    || window.location.hostname === '127.0.0.1';
+
+  const session = useSessionController({
+    desktop,
+    localHubAccess,
+    onRecovered: () => setOnline(true),
+  });
+  const {
+    sessionCode,
+    token,
+    codeInput,
+    codeError,
+    sessionReady,
+    rotating,
+  } = session;
 
   const inputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -282,7 +255,6 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const cancelUploadRef = useRef(false);
   const batchQueueRef = useRef<UploadQueue | null>(null);
-  const recoveringSessionRef = useRef(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -290,104 +262,11 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // 桌面端通过 loopback /api/session 读取配对码；手机端没有这个权限，只能从链接 #code 或输入框获取。
-  // 配对码只用于换取 bearer token，文件 API 不再接受配对码。
-  useEffect(() => {
-    let alive = true;
-    const loadSession = async () => {
-      let code = readSessionCode();
-      try {
-        const response = await fetch(`${API_BASE}/api/session`, { cache: 'no-store' });
-        if (response.ok) {
-          const data = (await response.json()) as { code?: string };
-          if (data.code) code = data.code;
-        }
-      } catch {
-        // 手机/旧版 Hub 没有 /api/session
-      }
-      if (!alive) return;
-      if (code) {
-        setSessionCode(code);
-        try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, code); } catch { /* ignore */ }
-        try {
-          const paired = await pairSession(code);
-          if (!alive) return;
-          setToken(paired.token);
-          setCodeError('');
-          try { window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token); } catch { /* ignore */ }
-        } catch (error) {
-          if (!alive) return;
-          setToken('');
-          setCodeInput(code);
-          setCodeError(error instanceof Error ? error.message : '配对失败');
-        }
-      }
-      if (alive) setSessionReady(true);
-    };
-    void loadSession();
-    return () => { alive = false; };
-  }, []);
-
-  const handleConnectToken = useCallback((newToken: string, _expiresAt: number) => {
-    setToken(newToken);
-    setCodeError('');
+  const handleConnectToken = useCallback((newToken: string, expiresAt: number) => {
+    session.acceptConnectedToken(newToken, expiresAt);
     setOnline(true);
-    setSessionReady(true);
-    try { window.sessionStorage.setItem(TOKEN_STORAGE_KEY, newToken); } catch { /* ignore */ }
     setToast({ text: '主机已允许连接', kind: 'success' });
-  }, []);
-
-  const localHubAccess = desktop
-    || window.location.hostname === 'localhost'
-    || window.location.hostname === '127.0.0.1';
-
-  // When the LAN gate stops and restarts the Hub, the old bearer token is
-  // invalid because the Hub token table is in memory. On a local Hub the
-  // session code remains loopback-readable, so re-pair automatically instead
-  // of showing a false "authorization expired" page.
-  useEffect(() => {
-    if (!sessionReady || token || !localHubAccess) return;
-    let alive = true;
-    const recover = async () => {
-      if (recoveringSessionRef.current) return;
-      recoveringSessionRef.current = true;
-      try {
-        const response = await fetch(`${API_BASE}/api/session`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const data = (await response.json()) as { code?: string };
-        if (!data.code || !alive) return;
-        const paired = await pairSession(data.code);
-        if (!alive) return;
-        setSessionCode(data.code);
-        setToken(paired.token);
-        setCodeError('');
-        setOnline(true);
-        try {
-          window.sessionStorage.setItem(SESSION_STORAGE_KEY, data.code);
-          window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token);
-        } catch { /* ignore */ }
-      } catch {
-        // Hub is still stopped or restarting; the next retry will try again.
-      } finally {
-        recoveringSessionRef.current = false;
-      }
-    };
-    void recover();
-    const timer = window.setInterval(() => { void recover(); }, 3000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, [localHubAccess, sessionReady, token]);
-
-  useEffect(() => {
-    if (!token || window.parent === window) return;
-    try {
-      window.parent.postMessage({ type: 'filebridge-peer-connected' }, '*');
-    } catch {
-      // 跨窗口通知失败不影响传输
-    }
-  }, [token]);
+  }, [session.acceptConnectedToken]);
 
   useEffect(() => {
     if (!peerFrame) return;
@@ -448,9 +327,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         signal: controller.signal,
       });
       if (response.status === 401) {
-        setToken('');
-        setCodeError('授权已过期，请重新配对');
-        try { window.sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignore */ }
+        session.expireToken('授权已过期，请重新配对');
         monitor.completeProbe(true);
         return;
       }
@@ -620,60 +497,27 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
   }, [desktop, loadInfo, online, publicPaused]);
 
   const unlock = useCallback(async () => {
-    const candidate = codeInput.trim();
-    if (!/^\d{6}$/.test(candidate)) {
-      setCodeError('请输入电脑上显示的 6 位数字配对码');
-      return;
-    }
-    setCodeError('');
-    try {
-      const paired = await pairSession(candidate);
-      const response = await fetch(`${API_BASE}/api/files`, {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${paired.token}` },
-      });
-      if (!response.ok) throw new Error('配对成功，但读取文件列表失败，请重试');
-      const data = (await response.json()) as HubFile[];
-      setFiles(Array.isArray(data) ? data : []);
-      setSessionCode(candidate);
-      setToken(paired.token);
-      setCodeInput('');
-      try {
-        window.sessionStorage.setItem(SESSION_STORAGE_KEY, candidate);
-        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token);
-      } catch { /* ignore */ }
-      setOnline(true);
-    } catch (e) {
-      setCodeError(e instanceof Error ? e.message : '连接失败');
-    }
-  }, [codeInput]);
+    // The controller owns validation/pairing/persistence; the file probe below
+    // may veto the token so a pairing that cannot read files stays uncommitted.
+    const unlocked = await session.unlock({
+      preCommit: async (pairedToken) => {
+        const response = await fetch(`${API_BASE}/api/files`, {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${pairedToken}` },
+        });
+        if (!response.ok) throw new Error('配对成功，但读取文件列表失败，请重试');
+        const data = (await response.json()) as HubFile[];
+        setFiles(Array.isArray(data) ? data : []);
+      },
+    });
+    if (unlocked) setOnline(true);
+  }, [session.unlock]);
 
   const rotatePairing = useCallback(async () => {
     if (!window.confirm('重新生成配对码会使所有手机连接失效，确定继续？')) return;
-    setRotating(true);
-    setCodeError('');
-    try {
-      const response = await fetch(`${API_BASE}/api/session/rotate`, { method: 'POST' });
-      if (response.status === 403) {
-        throw new Error('只有电脑本机可以重新生成配对码');
-      }
-      if (!response.ok) throw new Error('重新生成失败，请确认 Hub 正常运行');
-      const data = (await response.json()) as { code: string };
-      const paired = await pairSession(data.code);
-      setSessionCode(data.code);
-      setToken(paired.token);
-      setCodeInput('');
-      setFiles([]);
-      try {
-        window.sessionStorage.setItem(SESSION_STORAGE_KEY, data.code);
-        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, paired.token);
-      } catch { /* ignore */ }
-    } catch (e) {
-      setCodeError(e instanceof Error ? e.message : '重新生成失败');
-    } finally {
-      setRotating(false);
-    }
-  }, []);
+    const rotated = await session.rotatePairing();
+    if (rotated) setFiles([]);
+  }, [session.rotatePairing]);
 
   useEffect(() => {
     void loadInfo();
@@ -743,9 +587,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           return;
         }
         if (xhr.status === 401) {
-          setToken('');
-          setCodeError('授权已过期，请重新配对');
-          try { window.sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignore */ }
+          session.expireToken('授权已过期，请重新配对');
         }
         if (xhr.status === 409) {
           try {
@@ -1247,8 +1089,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 401) {
-        setToken('');
-        setCodeError('授权已过期，请在“连接详情”里重新配对');
+        session.expireToken('授权已过期，请在“连接详情”里重新配对');
         return;
       }
       if (!response.ok) throw new Error('删除失败，请稍后重试');
@@ -1278,8 +1119,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
           headers: { Authorization: `Bearer ${token}` },
         });
         if (response.status === 401) {
-          setToken('');
-          setCodeError('授权已过期，请在“连接详情”里重新配对');
+          session.expireToken('授权已过期，请在“连接详情”里重新配对');
           return;
         }
         if (!response.ok) throw new Error(`删除 ${file.name} 失败`);
@@ -1748,7 +1588,7 @@ export function HttpTransfer({ lanService = null, networkBlocked = false }: Http
               id="http-session-code"
               className="input"
               value={codeInput}
-              onChange={(event) => setCodeInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(event) => session.setCodeInput(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') void unlock(); }}
               inputMode="numeric"
               autoComplete="one-time-code"
