@@ -25,6 +25,9 @@ jobs:
       - name: Typecheck
         run: npm run check
 
+      - name: Architecture boundaries
+        run: npm run check:architecture
+
       - name: Build frontend
         run: npm run build
 
@@ -42,6 +45,9 @@ jobs:
 
       - name: LAN address selection tests
         run: npm run test:lan
+
+      - name: API client tests
+        run: npm run test:api
 
       - name: Hub smoke tests
         run: npm run test:hub

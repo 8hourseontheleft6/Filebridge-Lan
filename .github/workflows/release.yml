@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的现有 tag，例如 v1.5.3'
+        description: '要发布的现有 tag，例�?v1.5.3'
         required: true
         type: string
 
@@ -66,6 +66,9 @@ jobs:
       - name: Version consistency
         run: npm run test:version
 
+      - name: Architecture boundaries
+        run: npm run check:architecture
+
       - name: Connection monitor tests
         run: npm run test:connection
 
@@ -77,6 +80,9 @@ jobs:
 
       - name: LAN address selection tests
         run: npm run test:lan
+
+      - name: API client tests
+        run: npm run test:api
 
       - name: Hub smoke tests
         run: npm run test:hub
