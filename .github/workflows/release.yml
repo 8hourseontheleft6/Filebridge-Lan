@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的现有 tag，例�?v1.5.3'
+        description: '要发布的现有 tag，例如 v1.5.3'
         required: true
         type: string
 
