@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { isTauriHost } from '../lib/hub';
+import { useSettings } from '../features/settings/useSettings';
 import { InfoTip } from './InfoTip';
 import { Icon } from './Icon';
 import { BrandMark } from './BrandMark';
@@ -9,33 +8,10 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
-const PROJECT_URL = 'https://github.com/8hourseontheleft6/Filebridge-Lan';
-
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
-  const desktop = isTauriHost();
-  const [savedDir, setSavedDir] = useState('');
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const settings = useSettings();
   const [aboutOpen, setAboutOpen] = useState(false);
-
-  useEffect(() => {
-    if (!desktop) return;
-    let active = true;
-    invoke<string>('get_download_dir')
-      .then((dir) => {
-        if (!active) return;
-        setSavedDir(dir);
-        setDraft(dir);
-      })
-      .catch((reason) => {
-        if (active) setError(`读取设置失败：${String(reason)}`);
-      });
-    return () => {
-      active = false;
-    };
-  }, [desktop]);
+  const { desktop, draft, busy, message, error } = settings;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -44,74 +20,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
-
-  async function chooseFolder() {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const picked = await invoke<string | null>('pick_download_dir', {
-        current: draft || savedDir,
-      });
-      if (picked) setDraft(picked);
-    } catch (reason) {
-      setError(`选择文件夹失败：${String(reason)}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function save() {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const dir = await invoke<string>('set_download_dir', { path: draft });
-      setSavedDir(dir);
-      setDraft(dir);
-      setMessage('已保存');
-    } catch (reason) {
-      setError(`保存失败：${String(reason)}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function reset() {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const dir = await invoke<string>('default_download_dir');
-      setDraft(dir);
-      setMessage('已恢复默认路径，点击“保存”生效');
-    } catch (reason) {
-      setError(`恢复默认失败：${String(reason)}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function openFolder() {
-    setError('');
-    try {
-      await invoke('open_download_dir');
-    } catch (reason) {
-      setError(`打开文件夹失败：${String(reason)}`);
-    }
-  }
-
-  async function openProject() {
-    if (!desktop) {
-      window.open(PROJECT_URL, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    try {
-      await invoke('open_external', { url: PROJECT_URL });
-    } catch (reason) {
-      setError(`打开链接失败：${String(reason)}`);
-    }
-  }
 
   return (
     <section className="settings-page" aria-labelledby="settings-title">
@@ -135,11 +43,11 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 id="download-dir"
                 className="input"
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => settings.setDraft(event.target.value)}
                 placeholder="例如 C:\Users\你\Downloads"
                 spellCheck={false}
               />
-              <button type="button" className="btn btn-small" onClick={() => void chooseFolder()} disabled={busy}>
+              <button type="button" className="btn btn-small" onClick={() => void settings.chooseFolder()} disabled={busy}>
                 选择…
               </button>
             </div>
@@ -148,13 +56,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <InfoTip text="同名且大小相同的文件不会重复下载。手机打不开时，请确认 Windows 防火墙允许 Filebridge-Lan 访问专用网络；详见项目 README 的“手机打不开”一节。" />
             </p>
             <div className="settings-actions">
-              <button type="button" className="btn btn-small" onClick={() => void openFolder()} disabled={busy}>
+              <button type="button" className="btn btn-small" onClick={() => void settings.openFolder()} disabled={busy}>
                 打开文件夹
               </button>
-              <button type="button" className="btn btn-small" onClick={() => void reset()} disabled={busy}>
+              <button type="button" className="btn btn-small" onClick={() => void settings.reset()} disabled={busy}>
                 恢复默认
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={busy || !draft.trim()}>
+              <button type="button" className="btn btn-primary" onClick={() => void settings.save()} disabled={busy || !draft.trim()}>
                 {busy ? '处理中…' : '保存'}
               </button>
             </div>
@@ -212,7 +120,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             <p className="about-note">
               跨网络中继尚未完成真实 WAN 验证，请只在可信网络内使用局域网直传。
             </p>
-            <button type="button" className="about-link" onClick={() => void openProject()}>
+            <button type="button" className="about-link" onClick={() => void settings.openProject()}>
               GitHub 项目与更新 ↗
             </button>
           </div>
