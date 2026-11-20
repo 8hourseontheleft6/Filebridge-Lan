@@ -31,7 +31,6 @@ const ALLOWLIST = {
   'src/App.tsx': ['tauri-invoke', 'tauri-core-import'],
   'src/lib/hub.ts': ['http-fetch', 'api-base'],
   'src/components/SettingsPanel.tsx': ['tauri-invoke', 'tauri-core-import'],
-  'src/http/ClipboardPanel.tsx': ['tauri-invoke', 'tauri-core-import', 'http-fetch', 'api-base'],
   'src/http/ConnectApproval.tsx': ['api-base'],
   'src/http/ConnectPanel.tsx': ['api-base'],
   'src/http/HostApprovalGate.tsx': ['api-base'],

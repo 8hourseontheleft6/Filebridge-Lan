@@ -61,21 +61,23 @@ Node Hub / Rust Hub（同一 HTTP 契约）
 |---|---|---|
 | `src/http/HttpTransfer.tsx` | 2236 | session/token/pairing、fetch、EventSource、文件列表、上传队列、XHR/Fetch 分块、offset 续传、重试/取消/删除、下载与保存、Tauri 调用、速率统计、大量 UI |
 | `src/relay/RelayTransfer.tsx` | 554 | UI + 加密分片 + 传输状态机 |
-| `src/http/ClipboardPanel.tsx` | 379 | UI + fetch + invoke + 轮询 + 错误映射 |
 | `src/App.tsx` | 402 | 布局 + 直接 `invoke` 网络检测 |
 | `src/components/SettingsPanel.tsx` | 202 | UI + 5 个 `invoke` |
 | `src/http/NearbyComputers.tsx` | 143 | UI + `invoke` 轮询 |
 | `src/lib/hub.ts` | 105 | 运行环境判断 + `API_BASE` + `fetchHubInfo` + 手机地址选择 |
 
+已迁移（阶段 C）：`src/http/ClipboardPanel.tsx` 从 404 行降到 142 行，只剩布局与本地输入状态；
+通信与同步逻辑进入 `src/features/clipboard/`（controller 293 行、service 243 行、types 20 行），
+该文件已不在 allowlist 中。
+
 ### 3.3 临时例外清单（Architecture allowlist）
 
-`scripts/check-architecture.mjs` 中的 `ALLOWLIST` 是唯一合法的例外来源。当前 10 个文件：
+`scripts/check-architecture.mjs` 中的 `ALLOWLIST` 是唯一合法的例外来源。当前 9 个文件：
 
 ```text
 src/App.tsx                     tauri-invoke, tauri-core-import
 src/lib/hub.ts                  http-fetch, api-base
 src/components/SettingsPanel.tsx tauri-invoke, tauri-core-import
-src/http/ClipboardPanel.tsx     tauri-invoke, tauri-core-import, http-fetch, api-base
 src/http/ConnectApproval.tsx    api-base
 src/http/ConnectPanel.tsx       api-base
 src/http/HostApprovalGate.tsx   api-base
@@ -92,8 +94,8 @@ src/http/connect.ts             http-fetch, api-base
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | A | 架构文档 + `check:architecture` 门禁 + 基线记录 | 已完成 |
-| B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 进行中 |
-| C | 剪贴板纵向切片（api/service/controller + 面板改造） | 待开始 |
+| B | `platform/runtime`、`api/httpClient`、`api/errors`、`platform/tauri`、各领域 API 模块 + 测试 | 已完成 |
+| C | 剪贴板纵向切片（api/service/controller + 面板改造） | 已完成（UI 四态回归待补） |
 | D | 设置、网络门禁、连接模块 | 待开始 |
 | E | HttpTransfer 拆分：E1 session、E2 files、E3 upload、E4 download、E5 SSE、E6 UI | 待开始 |
 | F | Relay 模块 | 待开始 |
